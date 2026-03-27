@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scott Lumber Packaging | Custom Lumber Wrap & Industrial Covers Since 2005</title>
+  <meta name="description" content="Custom lumber wrap, sewn covers, plywood bags, and industrial packaging with same-day shipping. Family-owned since 2005, serving sawmills and manufacturers across the US.">
+  <meta name="keywords" content="lumber wrap, beam wrap, steel wrap, plywood covers, sewn lumber covers, poly pallet covers, pipe covers, industrial packaging, woven polypropylene, custom packaging, lumber packaging">
+
+  <meta property="og:title" content="Scott Lumber Packaging | Custom Lumber Wrap & Industrial Covers">
+  <meta property="og:description" content="Custom lumber wrap and industrial packaging with same-day shipping. Family-owned since 2005.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://scottlumberpackaging.com">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "Scott Lumber Packaging",
+    "url": "https://scottlumberpackaging.com",
+    "description": "Family-owned provider of custom lumber wrap, sewn covers, and industrial packaging since 2005. Same-day and next-day shipping available.",
+    "foundingDate": "2005",
+    "areaServed": "US",
+    "founder": {"@type": "Person", "name": "Scott Galbraith"},
+    "knowsAbout": ["Lumber Wrap", "Sewn Lumber Covers", "Plywood Bags", "Steel Wrap", "Poly Pallet Covers", "Industrial Pipe Covers", "Custom Packaging"]
+  }
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+    :root{
+      --dark:#111111;--dark-mid:#1A1A1A;--dark-surface:#222222;--dark-elevated:#2A2A2A;--dark-border:#333333;
+      --green-deep:#1B4D1B;--green:#2B6E2B;--green-accent:#3A8C3A;--green-bright:#4CAF50;--green-light:#E8F5E9;--green-muted:rgba(43,110,43,0.15);
+      --gold:#C8A84E;--gold-hover:#B8952F;
+      --white:#FFFFFF;--off-white:#F7F8F6;--gray-100:#EAECE8;--gray-200:#D1D5CC;--gray-400:#9CA396;--gray-600:#6B7264;--gray-800:#3A3F35;
+      --text-primary:#111111;--text-secondary:#555B4E;
+      --shadow-sm:0 1px 3px rgba(0,0,0,0.12);--shadow-md:0 4px 16px rgba(0,0,0,0.15);--shadow-lg:0 8px 32px rgba(0,0,0,0.20);
+      --radius:8px;--radius-lg:12px;--max-width:1200px;--transition:0.3s cubic-bezier(0.4,0,0.2,1);
+    }
+    html{scroll-behavior:smooth}
+    body{font-family:'DM Sans',sans-serif;color:var(--text-primary);line-height:1.6;background:var(--white);-webkit-font-smoothing:antialiased}
+    h1,h2,h3,h4{font-family:'Outfit',sans-serif;line-height:1.2}
+    img{max-width:100%;height:auto;display:block}
+    a{color:inherit;text-decoration:none}
+    .container{max-width:var(--max-width);margin:0 auto;padding:0 24px}
+
+    .section-label{display:inline-flex;align-items:center;gap:8px;font-family:'Outfit',sans-serif;font-size:0.8rem;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:var(--green-accent);margin-bottom:16px}
+    .section-label::before{content:'';display:inline-block;width:24px;height:2px;background:var(--green)}
+    .section-title{font-size:clamp(1.8rem,4vw,2.6rem);font-weight:700;color:var(--dark);margin-bottom:16px}
+    .section-subtitle{font-size:1.05rem;color:var(--text-secondary);max-width:620px;line-height:1.7}
+
+    .btn{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;font-family:'Outfit',sans-serif;font-size:0.95rem;font-weight:600;border-radius:var(--radius);border:none;cursor:pointer;transition:all var(--transition)}
+    .btn-primary{background:var(--green);color:var(--white);box-shadow:0 4px 12px rgba(43,110,43,0.35)}
+    .btn-primary:hover{background:var(--green-accent);transform:translateY(-2px);box-shadow:0 6px 20px rgba(43,110,43,0.45)}
+    .btn-secondary{background:transparent;color:var(--white);border:2px solid rgba(255,255,255,0.3)}
+    .btn-secondary:hover{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.6)}
+    .btn svg{width:18px;height:18px}
+
+    /* ===== HEADER ===== */
+    header{position:fixed;top:0;left:0;right:0;z-index:1000;background:rgba(17,17,17,0.95);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,0.04);transition:all var(--transition)}
+    header.scrolled{box-shadow:var(--shadow-lg)}
+    .header-inner{display:flex;align-items:center;justify-content:space-between;height:72px}
+    .logo{display:flex;align-items:center;gap:12px}
+    .logo img{height:44px;width:auto}
+    .logo-text{font-family:'Outfit',sans-serif;font-weight:800;font-size:1.25rem;color:var(--white);line-height:1.15;letter-spacing:0.02em}
+    .logo-text span{display:block;font-weight:400;font-size:0.65rem;letter-spacing:0.14em;text-transform:uppercase;color:var(--green-accent);margin-top:1px}
+    nav{display:flex;align-items:center;gap:6px}
+    nav a{padding:8px 16px;font-size:0.88rem;font-weight:500;color:rgba(255,255,255,0.65);border-radius:6px;transition:all var(--transition)}
+    nav a:hover{color:var(--white);background:rgba(255,255,255,0.06)}
+    .nav-cta{background:var(--green)!important;color:var(--white)!important;font-weight:600!important;margin-left:8px}
+    .nav-cta:hover{background:var(--green-accent)!important}
+    .mobile-toggle{display:none;flex-direction:column;gap:5px;background:none;border:none;cursor:pointer;padding:8px}
+    .mobile-toggle span{display:block;width:24px;height:2px;background:var(--white);border-radius:2px;transition:all var(--transition)}
+
+    /* ===== HERO ===== */
+    .hero{position:relative;min-height:94vh;display:flex;align-items:center;background:var(--dark);overflow:hidden}
+    .hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 60% 60% at 70% 40%,rgba(43,110,43,0.12) 0%,transparent 70%),radial-gradient(ellipse 50% 50% at 20% 80%,rgba(27,77,27,0.08) 0%,transparent 60%);pointer-events:none}
+    .hero::after{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,0.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.015) 1px,transparent 1px);background-size:48px 48px;pointer-events:none}
+    .hero-content{position:relative;z-index:2;padding:120px 0 80px}
+    .hero-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 18px;background:rgba(43,110,43,0.12);border:1px solid rgba(43,110,43,0.25);border-radius:100px;font-size:0.82rem;font-weight:500;color:var(--green-bright);margin-bottom:28px;animation:fadeInUp .8s ease both}
+    .hero-badge svg{color:var(--green-bright)}
+    .hero h1{font-size:clamp(2.4rem,5.5vw,3.8rem);font-weight:800;color:var(--white);max-width:720px;margin-bottom:24px;animation:fadeInUp .8s ease .1s both}
+    .hero h1 em{font-style:normal;color:var(--green-bright)}
+    .hero-desc{font-size:1.15rem;color:rgba(255,255,255,0.55);max-width:560px;line-height:1.75;margin-bottom:40px;animation:fadeInUp .8s ease .2s both}
+    .hero-buttons{display:flex;gap:16px;flex-wrap:wrap;animation:fadeInUp .8s ease .3s both}
+    .hero-stats{display:flex;gap:48px;margin-top:64px;padding-top:40px;border-top:1px solid rgba(255,255,255,0.06);animation:fadeInUp .8s ease .4s both}
+    .hero-stat h3{font-family:'Outfit',sans-serif;font-size:2rem;font-weight:700;color:var(--white)}
+    .hero-stat p{font-size:0.82rem;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:0.06em;margin-top:4px}
+    @keyframes fadeInUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+
+    /* ===== PROMISE BAR ===== */
+    .promise-bar{background:var(--green-deep);padding:20px 0;border-bottom:1px solid rgba(255,255,255,0.08)}
+    .promise-bar-inner{display:flex;justify-content:center;gap:48px;flex-wrap:wrap}
+    .promise-item{display:flex;align-items:center;gap:10px;color:rgba(255,255,255,0.85);font-size:0.88rem;font-weight:500}
+    .promise-item svg{color:var(--green-bright);flex-shrink:0}
+
+    /* ===== PRODUCTS ===== */
+    .products{padding:100px 0;background:var(--off-white)}
+    .products-header{text-align:center;margin-bottom:56px}
+    .products-header .section-subtitle{margin:0 auto}
+    .products-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:28px}
+    .product-card{background:var(--white);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-sm);transition:all var(--transition);border:1px solid var(--gray-100)}
+    .product-card:hover{transform:translateY(-6px);box-shadow:var(--shadow-lg);border-color:var(--green)}
+    .product-img{position:relative;height:210px;background:linear-gradient(135deg,var(--dark),var(--dark-mid));overflow:hidden;display:flex;align-items:center;justify-content:center}
+    .product-img img{width:100%;height:100%;object-fit:cover}
+    .product-img .placeholder{font-family:'Outfit',sans-serif;font-size:0.8rem;font-weight:500;color:rgba(255,255,255,0.3);text-align:center;padding:20px}
+    .product-body{padding:24px}
+    .product-body h3{font-size:1.15rem;font-weight:700;color:var(--dark);margin-bottom:10px}
+    .product-body p{font-size:0.9rem;color:var(--text-secondary);line-height:1.65;margin-bottom:16px}
+    .product-tags{display:flex;flex-wrap:wrap;gap:6px}
+    .product-tags span{padding:4px 10px;font-size:0.72rem;font-weight:600;color:var(--green-deep);background:var(--green-light);border-radius:100px;text-transform:uppercase;letter-spacing:0.04em}
+
+    /* ===== ABOUT ===== */
+    .about{padding:100px 0}
+    .about-grid{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center}
+    .about-content .section-title{margin-bottom:20px}
+    .about-text{font-size:1rem;color:var(--text-secondary);line-height:1.75;margin-bottom:24px}
+    .about-text:last-of-type{margin-bottom:32px}
+    .about-features{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+    .about-feature{display:flex;gap:12px;align-items:flex-start}
+    .about-feature-icon{flex-shrink:0;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:var(--green-light);border-radius:var(--radius);color:var(--green)}
+    .about-feature h4{font-size:0.92rem;font-weight:600;color:var(--dark);margin-bottom:2px}
+    .about-feature p{font-size:0.82rem;color:var(--gray-600)}
+
+    .about-visual-box{background:linear-gradient(135deg,var(--dark) 0%,var(--dark-surface) 100%);border-radius:var(--radius-lg);padding:48px;color:var(--white);position:relative;overflow:hidden;border:1px solid var(--dark-border)}
+    .about-visual-box::before{content:'';position:absolute;top:-40px;right:-40px;width:160px;height:160px;background:rgba(43,110,43,0.1);border-radius:50%}
+    .about-visual-box h3{font-size:3.2rem;font-weight:800;margin-bottom:8px;position:relative}
+    .about-visual-box h3 span{color:var(--green-bright)}
+    .about-visual-box>p{font-size:1rem;color:rgba(255,255,255,0.5);margin-bottom:32px;position:relative}
+    .about-visual-stats{display:grid;grid-template-columns:1fr 1fr;gap:20px;position:relative}
+    .about-visual-stat{padding:20px;background:rgba(255,255,255,0.04);border-radius:var(--radius);border:1px solid rgba(255,255,255,0.06)}
+    .about-visual-stat h4{font-size:1.5rem;font-weight:700;margin-bottom:4px;color:var(--green-bright)}
+    .about-visual-stat p{font-size:0.8rem;margin-bottom:0;color:rgba(255,255,255,0.4)}
+
+    /* ===== WHY US ===== */
+    .why-us{padding:100px 0;background:var(--off-white)}
+    .why-us-header{text-align:center;margin-bottom:56px}
+    .why-us-header .section-subtitle{margin:0 auto}
+    .why-us-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:24px}
+    .why-card{background:var(--white);padding:32px 24px;border-radius:var(--radius-lg);border:1px solid var(--gray-100);text-align:center;transition:all var(--transition)}
+    .why-card:hover{border-color:var(--green);box-shadow:var(--shadow-md)}
+    .why-card-icon{width:56px;height:56px;margin:0 auto 20px;display:flex;align-items:center;justify-content:center;background:var(--green-light);border-radius:14px;color:var(--green)}
+    .why-card h3{font-size:1rem;font-weight:700;color:var(--dark);margin-bottom:8px}
+    .why-card p{font-size:0.85rem;color:var(--text-secondary);line-height:1.6}
+
+    /* ===== INDUSTRIES ===== */
+    .industries{padding:80px 0;background:var(--dark)}
+    .industries-header{text-align:center;margin-bottom:48px}
+    .industries-header .section-label{color:var(--green-accent)}
+    .industries-header .section-label::before{background:var(--green)}
+    .industries-header .section-title{color:var(--white)}
+    .industries-header .section-subtitle{color:rgba(255,255,255,0.45);margin:0 auto}
+    .industries-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
+    .industry-tag{padding:20px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:var(--radius);text-align:center;color:rgba(255,255,255,0.7);font-size:0.9rem;font-weight:500;transition:all var(--transition)}
+    .industry-tag:hover{background:rgba(43,110,43,0.15);border-color:rgba(43,110,43,0.3);color:var(--white)}
+
+    /* ===== TESTIMONIALS ===== */
+    .testimonials{padding:100px 0;background:var(--off-white)}
+    .testimonials-header{text-align:center;margin-bottom:56px}
+    .testimonials-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:28px}
+    .testimonial-card{background:var(--white);border:1px solid var(--gray-100);border-radius:var(--radius-lg);padding:32px;transition:all var(--transition)}
+    .testimonial-card:hover{box-shadow:var(--shadow-md);border-color:var(--green)}
+    .testimonial-stars{color:var(--gold);font-size:1rem;margin-bottom:16px;letter-spacing:2px}
+    .testimonial-card blockquote{font-size:0.95rem;color:var(--text-secondary);line-height:1.7;font-style:italic;margin-bottom:20px}
+    .testimonial-author{font-size:0.85rem;font-weight:600;color:var(--dark)}
+    .testimonial-author span{display:block;font-weight:400;color:var(--gray-600);font-size:0.8rem;margin-top:2px}
+
+    /* ===== CTA BANNER ===== */
+    .cta-banner{padding:80px 0;background:linear-gradient(135deg,var(--green-deep) 0%,var(--green) 100%);text-align:center;position:relative;overflow:hidden}
+    .cta-banner::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 50% 80% at 20% 50%,rgba(255,255,255,0.06) 0%,transparent 60%),radial-gradient(ellipse 40% 60% at 90% 50%,rgba(0,0,0,0.1) 0%,transparent 60%);pointer-events:none}
+    .cta-banner h2{font-size:clamp(1.6rem,3.5vw,2.2rem);font-weight:700;color:var(--white);margin-bottom:12px;position:relative}
+    .cta-banner p{font-size:1.05rem;color:rgba(255,255,255,0.7);margin-bottom:32px;position:relative}
+    .cta-banner .btn{background:var(--white);color:var(--green-deep);font-weight:700;position:relative;box-shadow:0 4px 16px rgba(0,0,0,0.15)}
+    .cta-banner .btn:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.2)}
+
+    /* ===== CONTACT ===== */
+    .contact{padding:100px 0}
+    .contact-grid{display:grid;grid-template-columns:1fr 1.2fr;gap:64px;align-items:start}
+    .contact-info{padding-top:8px}
+    .contact-info .section-title{margin-bottom:16px}
+    .contact-desc{font-size:1rem;color:var(--text-secondary);line-height:1.7;margin-bottom:36px}
+    .contact-callout{background:var(--green-light);border-left:4px solid var(--green);padding:20px 24px;border-radius:0 var(--radius) var(--radius) 0;margin-bottom:36px}
+    .contact-callout p{font-size:0.92rem;color:var(--green-deep);font-weight:500;line-height:1.6}
+    .contact-callout p strong{color:var(--dark)}
+    .contact-details{display:flex;flex-direction:column;gap:20px}
+    .contact-detail{display:flex;gap:14px;align-items:center}
+    .contact-detail-icon{flex-shrink:0;width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:var(--green-light);border-radius:12px;color:var(--green)}
+    .contact-detail div{font-size:0.82rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:0.04em;font-weight:600}
+    .contact-detail p{font-size:1rem;color:var(--text-primary);font-weight:500}
+
+    .quote-form{background:var(--white);padding:40px;border-radius:var(--radius-lg);border:1px solid var(--gray-100);box-shadow:var(--shadow-md)}
+    .quote-form h3{font-size:1.3rem;font-weight:700;color:var(--dark);margin-bottom:8px}
+    .quote-form>p{font-size:0.9rem;color:var(--gray-600);margin-bottom:28px}
+    .form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .form-group{margin-bottom:18px}
+    .form-group label{display:block;font-size:0.82rem;font-weight:600;color:var(--gray-800);margin-bottom:6px}
+    .form-group input,.form-group select,.form-group textarea{width:100%;padding:12px 16px;font-family:'DM Sans',sans-serif;font-size:0.92rem;color:var(--text-primary);background:var(--off-white);border:1px solid var(--gray-200);border-radius:var(--radius);outline:none;transition:all var(--transition)}
+    .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(43,110,43,0.1);background:var(--white)}
+    .form-group textarea{resize:vertical;min-height:100px}
+    .form-submit{width:100%;padding:16px;font-family:'Outfit',sans-serif;font-size:1rem;font-weight:600;color:var(--white);background:var(--green);border:none;border-radius:var(--radius);cursor:pointer;transition:all var(--transition);box-shadow:0 4px 12px rgba(43,110,43,0.3)}
+    .form-submit:hover{background:var(--green-accent);box-shadow:0 6px 20px rgba(43,110,43,0.4);transform:translateY(-1px)}
+
+    /* ===== FOOTER ===== */
+    footer{background:var(--dark);padding:48px 0 32px;color:rgba(255,255,255,0.4)}
+    .footer-inner{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}
+    .footer-logo{font-family:'Outfit',sans-serif;font-weight:700;font-size:1rem;color:var(--white)}
+    .footer-logo span{font-weight:400;color:rgba(255,255,255,0.35)}
+    .footer-links{display:flex;gap:28px}
+    .footer-links a{font-size:0.85rem;color:rgba(255,255,255,0.4);transition:color var(--transition)}
+    .footer-links a:hover{color:var(--green-bright)}
+    .footer-copy{width:100%;text-align:center;padding-top:28px;margin-top:28px;border-top:1px solid rgba(255,255,255,0.06);font-size:0.8rem}
+
+    /* ===== RESPONSIVE ===== */
+    @media(max-width:1024px){
+      .products-grid{grid-template-columns:repeat(2,1fr)}
+      .why-us-grid{grid-template-columns:repeat(2,1fr)}
+      .testimonials-grid{grid-template-columns:repeat(2,1fr)}
+      .industries-grid{grid-template-columns:repeat(2,1fr)}
+      .about-grid{gap:40px}
+    }
+    @media(max-width:768px){
+      .mobile-toggle{display:flex}
+      nav{position:fixed;top:72px;left:0;right:0;background:var(--dark);flex-direction:column;padding:24px;gap:4px;transform:translateY(-120%);opacity:0;transition:all var(--transition);border-bottom:1px solid rgba(255,255,255,0.06)}
+      nav.open{transform:translateY(0);opacity:1}
+      nav a{width:100%;padding:12px 16px}
+      .nav-cta{text-align:center;margin-left:0!important;margin-top:8px}
+      .hero{min-height:auto;padding:48px 0}
+      .hero-content{padding:100px 0 48px}
+      .hero-stats{gap:24px;flex-wrap:wrap}
+      .promise-bar-inner{gap:20px;text-align:center;justify-content:center}
+      .products-grid,.about-grid,.why-us-grid,.testimonials-grid,.contact-grid{grid-template-columns:1fr}
+      .industries-grid{grid-template-columns:1fr 1fr}
+      .form-row{grid-template-columns:1fr}
+      .about-features{grid-template-columns:1fr}
+      .about-visual{order:-1}
+      .footer-inner{flex-direction:column;text-align:center}
+      .footer-links{flex-wrap:wrap;justify-content:center}
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ===== HEADER ===== -->
+  <header id="header">
+    <div class="container header-inner">
+      <a href="#" class="logo">
+        <!-- REPLACE: <img src="images/scott-lumber-logo.png" alt="Scott Lumber Packaging"> -->
+        <div class="logo-text">SCOTT<span>Lumber Packaging</span></div>
+      </a>
+      <nav id="nav">
+        <a href="#products">Products</a>
+        <a href="#about">About</a>
+        <a href="#why-us">Why Us</a>
+        <a href="#reviews">Reviews</a>
+        <a href="#contact" class="nav-cta">Get a Quote</a>
+      </nav>
+      <button class="mobile-toggle" onclick="document.getElementById('nav').classList.toggle('open')" aria-label="Toggle menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ===== HERO ===== -->
+  <section class="hero">
+    <div class="container hero-content">
+      <div class="hero-badge">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Family-owned &amp; serving the lumber industry since 2005
+      </div>
+      <h1>Lumber Wrap &amp; Industrial Packaging <em>Built to Perform</em></h1>
+      <p class="hero-desc">Custom lumber wrap, sewn covers, and industrial packaging — engineered for tough conditions and shipped when you need them. Most orders ship same day or next day.</p>
+      <div class="hero-buttons">
+        <a href="#contact" class="btn btn-primary">
+          Request a Quote
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </a>
+        <a href="#products" class="btn btn-secondary">View Products</a>
+      </div>
+      <div class="hero-stats">
+        <div class="hero-stat"><h3>20+</h3><p>Years in Business</p></div>
+        <div class="hero-stat"><h3>Same Day</h3><p>Shipping Available</p></div>
+        <div class="hero-stat"><h3>3x</h3><p>Quality Checks</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== PROMISE BAR ===== -->
+  <div class="promise-bar">
+    <div class="container promise-bar-inner">
+      <div class="promise-item">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+        We answer the phone — no voicemail
+      </div>
+      <div class="promise-item">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+        Most sizes in stock &amp; ready to ship
+      </div>
+      <div class="promise-item">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+        Same-day &amp; next-day shipping
+      </div>
+      <div class="promise-item">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+        Custom printing &amp; logo design
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PRODUCTS ===== -->
+  <section class="products" id="products">
+    <div class="container">
+      <div class="products-header">
+        <div class="section-label">Our Products</div>
+        <h2 class="section-title">Protection Engineered for Your Product</h2>
+        <p class="section-subtitle">Woven polypropylene and polyethylene covers and wraps with UV treatment, anti-slip coating, and a proprietary gloss finish for superior print quality and appearance.</p>
+      </div>
+      <div class="products-grid">
+
+        <div class="product-card">
+          <div class="product-img"><div class="placeholder">[ Lumber Wrap Image ]</div></div>
+          <div class="product-body">
+            <h3>Lumber Wrap Rolls</h3>
+            <p>Our flagship woven polypropylene wrap with a proprietary gloss finish and anti-slip exterior coating. Superior tear resistance and UV protection. Custom sizes up to 144″ with most sizes in stock for immediate shipment.</p>
+            <div class="product-tags"><span>Gloss Finish</span><span>Anti-Slip</span><span>In Stock</span></div>
+          </div>
+        </div>
+
+        <div class="product-card">
+          <div class="product-img"><div class="placeholder">[ Sewn Covers Image ]</div></div>
+          <div class="product-body">
+            <h3>Sewn Lumber Covers</h3>
+            <p>Custom sewn covers made from our premium woven coated polypropylene. The gloss white finish provides a sharp, professional surface for logo printing that stands out in the yard and going down the road.</p>
+            <div class="product-tags"><span>Custom Sewn</span><span>Print Ready</span><span>UV Treated</span></div>
+          </div>
+        </div>
+
+        <div class="product-card">
+          <div class="product-img"><div class="placeholder">[ Steel Wrap Image ]</div></div>
+          <div class="product-body">
+            <h3>Steel &amp; Beam Wrap</h3>
+            <p>VCI-coated woven polypropylene that prevents corrosion, oxidation, and discoloration. 120% stronger than standard wrap with a brilliant white surface for high-visibility logos. Subzero flexibility.</p>
+            <div class="product-tags"><span>VCI Coated</span><span>Extra Strength</span><span>Anti-Corrosion</span></div>
+          </div>
+        </div>
+
+        <div class="product-card">
+          <div class="product-img"><div class="placeholder">[ Plywood Bags Image ]</div></div>
+          <div class="product-body">
+            <h3>Plywood Bags &amp; Covers</h3>
+            <p>Durable plywood protection available in sewn woven polypropylene or LDPE poly film. Multiple tints including white, black, yellow, and green. Custom sizes and logo printing available.</p>
+            <div class="product-tags"><span>Multiple Options</span><span>Custom Print</span></div>
+          </div>
+        </div>
+
+        <div class="product-card">
+          <div class="product-img"><div class="placeholder">[ Pipe Covers Image ]</div></div>
+          <div class="product-body">
+            <h3>Industrial Pipe Covers</h3>
+            <p>Large-format industrial covers engineered for PVC pipe manufacturers and heavy industrial applications. Custom-sized to your specifications with the same quality materials and UV treatment as all our products.</p>
+            <div class="product-tags"><span>Large Format</span><span>Custom Sized</span></div>
+          </div>
+        </div>
+
+        <div class="product-card">
+          <div class="product-img"><div class="placeholder">[ Custom Solutions Image ]</div></div>
+          <div class="product-body">
+            <h3>Custom Packaging Solutions</h3>
+            <p>Poly pallet covers, poly bags, poly film, and specialty packaging tailored to your application. Our art team can help design your logo and branding to display boldly on any of our products.</p>
+            <div class="product-tags"><span>Custom Design</span><span>Art Team</span><span>Any Size</span></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== ABOUT ===== -->
+  <section class="about" id="about">
+    <div class="container about-grid">
+      <div class="about-content">
+        <div class="section-label">About Us</div>
+        <h2 class="section-title">A Better Way to Serve the Lumber Industry</h2>
+        <p class="about-text">Scott Lumber Packaging was founded in 2005 by Scott Galbraith after years of working in the industry and seeing a better way to serve customers. By cutting out middlemen and unnecessary management layers, we deliver a stronger product at a competitive price — with lead times the competition can't touch.</p>
+        <p class="about-text">In 2020, Scott's son Will Galbraith took over as CEO and continues to run the business with the same hands-on philosophy: answer every call, ship every order fast, and never let a customer run out of wrap. We're a small team of five, and every one of us is critical to keeping your operation moving.</p>
+
+        <div class="about-features">
+          <div class="about-feature">
+            <div class="about-feature-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg></div>
+            <div><h4>Family Owned</h4><p>Two generations of Galbraith leadership</p></div>
+          </div>
+          <div class="about-feature">
+            <div class="about-feature-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg></div>
+            <div><h4>We Answer the Phone</h4><p>Real people, no voicemail prompts</p></div>
+          </div>
+          <div class="about-feature">
+            <div class="about-feature-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+            <div><h4>3x Quality Checks</h4><p>Factory, warehouse, and pre-shipment</p></div>
+          </div>
+          <div class="about-feature">
+            <div class="about-feature-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+            <div><h4>Same-Day Shipping</h4><p>Most sizes in stock and ready to go</p></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="about-visual">
+        <div class="about-visual-box">
+          <h3>Since <span>'05</span></h3>
+          <p>Two generations of the Galbraith family serving the lumber industry</p>
+          <div class="about-visual-stats">
+            <div class="about-visual-stat"><h4>144″</h4><p>Max Custom Width</p></div>
+            <div class="about-visual-stat"><h4>3x</h4><p>Quality Inspections</p></div>
+            <div class="about-visual-stat"><h4>Same Day</h4><p>Shipping Available</p></div>
+            <div class="about-visual-stat"><h4>Nationwide</h4><p>Delivery Across the US</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== WHY US ===== -->
+  <section class="why-us" id="why-us">
+    <div class="container">
+      <div class="why-us-header">
+        <div class="section-label">Why Choose Us</div>
+        <h2 class="section-title">The Scott Lumber Difference</h2>
+        <p class="section-subtitle">Our reputation means more to us than a quick profit. When there's an issue, we visit you in person and make it right.</p>
+      </div>
+      <div class="why-us-grid">
+        <div class="why-card">
+          <div class="why-card-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
+          <h3>Fastest Lead Times</h3>
+          <p>Customers tell us we supply lumber wrap faster than anyone else. Most sizes in stock for same-day or next-day shipping.</p>
+        </div>
+        <div class="why-card">
+          <div class="why-card-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg></div>
+          <h3>Always Reachable</h3>
+          <p>When you call, a real person answers. No automated phone trees, no voicemail prompts. We believe good service starts with being available.</p>
+        </div>
+        <div class="why-card">
+          <div class="why-card-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+          <h3>Superior Material</h3>
+          <p>Higher tensile strength, more UV protection, and a stronger weatherproof coating. Our proprietary gloss finish and anti-slip additive set us apart.</p>
+        </div>
+        <div class="why-card">
+          <div class="why-card-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+          <h3>Custom Branding</h3>
+          <p>Our art team helps design your logo to display boldly on wraps and bags. The gloss finish makes your brand stand out in the yard and on the road.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== INDUSTRIES ===== -->
+  <section class="industries">
+    <div class="container">
+      <div class="industries-header">
+        <div class="section-label">Industries We Serve</div>
+        <h2 class="section-title">Trusted Across the Supply Chain</h2>
+        <p class="section-subtitle">From sawmills to auto parts manufacturers, we deliver the same fast service and consistent quality to every customer.</p>
+      </div>
+      <div class="industries-grid">
+        <div class="industry-tag">Sawmills</div>
+        <div class="industry-tag">Lumber Companies</div>
+        <div class="industry-tag">CLT Manufacturers</div>
+        <div class="industry-tag">Glulam Manufacturers</div>
+        <div class="industry-tag">Pellet Mills</div>
+        <div class="industry-tag">PVC Pipe Manufacturers</div>
+        <div class="industry-tag">Auto Parts Manufacturers</div>
+        <div class="industry-tag">Industrial &amp; Custom</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== TESTIMONIALS ===== -->
+  <section class="testimonials" id="reviews">
+    <div class="container">
+      <div class="testimonials-header">
+        <div class="section-label">Testimonials</div>
+        <h2 class="section-title">What Our Customers Say</h2>
+        <p class="section-subtitle">We build relationships, not just transactions. Many of our customers have been with us for years.</p>
+      </div>
+      <div class="testimonials-grid">
+        <div class="testimonial-card">
+          <div class="testimonial-stars">★★★★★</div>
+          <blockquote>"We called on a Friday afternoon needing wrap by Monday morning. Scott Lumber had it on a truck the same day. Nobody else in the industry can do that."</blockquote>
+          <div class="testimonial-author">Operations Manager<span>Regional Lumber Distributor</span></div>
+        </div>
+        <div class="testimonial-card">
+          <div class="testimonial-stars">★★★★★</div>
+          <blockquote>"The gloss finish on their wrap makes our branding look incredible. Customers notice the quality difference immediately — in the yard and when it rolls by on the highway."</blockquote>
+          <div class="testimonial-author">Purchasing Director<span>Specialty Wood Products</span></div>
+        </div>
+        <div class="testimonial-card">
+          <div class="testimonial-stars">★★★★★</div>
+          <blockquote>"What I appreciate most is that when I call, someone picks up. No phone trees, no waiting. That kind of service is rare in this industry and it's why we've stayed with them for years."</blockquote>
+          <div class="testimonial-author">VP of Supply Chain<span>National Building Materials Co.</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== CTA BANNER ===== -->
+  <section class="cta-banner">
+    <div class="container">
+      <h2>Never Run Out of Wrap Again</h2>
+      <p>We stock most sizes and offer warehousing and inventory management to keep your operation moving.</p>
+      <a href="#contact" class="btn">
+        Get a Custom Quote
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </a>
+    </div>
+  </section>
+
+  <!-- ===== CONTACT ===== -->
+  <section class="contact" id="contact">
+    <div class="container contact-grid">
+      <div class="contact-info">
+        <div class="section-label">Contact Us</div>
+        <h2 class="section-title">Let's Protect Your Product</h2>
+        <p class="contact-desc">Tell us what you need and we'll get back to you fast — the same way we ship. Most quotes returned within one business day.</p>
+
+        <div class="contact-callout">
+          <p><strong>Need it urgently?</strong> Just call us. We answer the phone and can often ship the same day for in-stock sizes.</p>
+        </div>
+
+        <div class="contact-details">
+          <div class="contact-detail">
+            <div class="contact-detail-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg></div>
+            <!-- REPLACE with actual phone number -->
+            <div><div>Phone</div><p>(555) 123-4567</p></div>
+          </div>
+          <div class="contact-detail">
+            <div class="contact-detail-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
+            <!-- REPLACE with actual email -->
+            <div><div>Email</div><p>info@scottlumberpackaging.com</p></div>
+          </div>
+          <div class="contact-detail">
+            <div class="contact-detail-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
+            <div><div>Serving</div><p>All 50 United States</p></div>
+          </div>
+        </div>
+      </div>
+
+      <form class="quote-form" name="quote" method="POST" data-netlify="true" netlify-honeypot="bot-field">
+        <p style="display:none"><label>Don't fill this out: <input name="bot-field"></label></p>
+        <h3>Request a Free Quote</h3>
+        <p>Fill out the form below and we'll get back to you quickly.</p>
+        <div class="form-row">
+          <div class="form-group"><label for="name">Full Name *</label><input type="text" id="name" name="name" required placeholder="John Smith"></div>
+          <div class="form-group"><label for="company">Company *</label><input type="text" id="company" name="company" required placeholder="Acme Lumber Co."></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label for="email">Email Address *</label><input type="email" id="email" name="email" required placeholder="john@company.com"></div>
+          <div class="form-group"><label for="phone">Phone Number</label><input type="tel" id="phone" name="phone" placeholder="(555) 123-4567"></div>
+        </div>
+        <div class="form-group">
+          <label for="product">Product of Interest</label>
+          <select id="product" name="product">
+            <option value="">Select a product...</option>
+            <option value="lumber-wrap">Lumber Wrap Rolls</option>
+            <option value="sewn-covers">Sewn Lumber Covers</option>
+            <option value="steel-beam-wrap">Steel & Beam Wrap</option>
+            <option value="plywood-bags">Plywood Bags & Covers</option>
+            <option value="pipe-covers">Industrial Pipe Covers</option>
+            <option value="poly-pallet">Poly Pallet Covers</option>
+            <option value="poly-film-bags">Poly Film & Poly Bags</option>
+            <option value="custom">Custom Packaging Solution</option>
+            <option value="multiple">Multiple Products</option>
+          </select>
+        </div>
+        <div class="form-group"><label for="message">Tell Us About Your Needs</label><textarea id="message" name="message" placeholder="Dimensions, quantities, custom printing requirements, timeline..."></textarea></div>
+        <button type="submit" class="form-submit">Send Quote Request →</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===== FOOTER ===== -->
+  <footer>
+    <div class="container footer-inner">
+      <div class="footer-logo">Scott Lumber <span>Packaging</span></div>
+      <div class="footer-links">
+        <a href="#products">Products</a>
+        <a href="#about">About</a>
+        <a href="#why-us">Why Us</a>
+        <a href="#reviews">Reviews</a>
+        <a href="#contact">Contact</a>
+      </div>
+      <div class="footer-copy">&copy; 2026 ScottLumberPackaging.com &middot; Family-owned since 2005 &middot; All Rights Reserved</div>
+    </div>
+  </footer>
+
+  <script>
+    const header=document.getElementById('header');
+    window.addEventListener('scroll',()=>{header.classList.toggle('scrolled',window.scrollY>20)});
+    document.querySelectorAll('#nav a').forEach(link=>{link.addEventListener('click',()=>{document.getElementById('nav').classList.remove('open')})});
+    const revealElements=document.querySelectorAll('.product-card,.why-card,.testimonial-card,.about-feature,.industry-tag');
+    const observer=new IntersectionObserver((entries)=>{entries.forEach((entry)=>{if(entry.isIntersecting){entry.target.style.opacity='1';entry.target.style.transform='translateY(0)';observer.unobserve(entry.target)}})},{threshold:0.1});
+    revealElements.forEach((el,i)=>{el.style.opacity='0';el.style.transform='translateY(24px)';el.style.transition='all 0.6s cubic-bezier(0.4,0,0.2,1) '+(i%4*0.08)+'s';observer.observe(el)});
+  </script>
+</body>
+</html>
