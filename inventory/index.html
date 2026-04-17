@@ -36,10 +36,12 @@ const R = window.Recharts;
 // ─────────────────────────────────────────────────────────────
 // Setup SQL (shown to user if tables don't exist)
 // ─────────────────────────────────────────────────────────────
-const SETUP_SQL = `-- Run this in the Supabase SQL Editor
+const SETUP_SQL = `-- Run this in the Supabase SQL Editor.
+-- Safe to run multiple times (idempotent).
 
 create table if not exists public.items (
   id uuid primary key default gen_random_uuid(),
+  sku text,
   name text not null,
   case_pack integer not null default 1,
   lead_time_days integer not null default 30,
@@ -54,16 +56,21 @@ create table if not exists public.transactions (
   po_number text,
   item_id uuid not null references public.items(id) on delete restrict,
   quantity integer not null,
+  user_email text,
   created_at timestamptz not null default now()
 );
 
-create index if not exists idx_transactions_item on public.transactions(item_id);
-create index if not exists idx_transactions_date on public.transactions(date);
+-- Migrations for existing deployments
+alter table public.items        add column if not exists sku text;
+alter table public.transactions add column if not exists user_email text;
 
-alter table public.items enable row level security;
+create unique index if not exists idx_items_sku         on public.items(sku) where sku is not null;
+create        index if not exists idx_transactions_item on public.transactions(item_id);
+create        index if not exists idx_transactions_date on public.transactions(date);
+
+alter table public.items        enable row level security;
 alter table public.transactions enable row level security;
 
--- Policies: any authenticated user can read/write
 do $$ begin
   if not exists (select 1 from pg_policies where tablename='items' and policyname='authed_all_items') then
     create policy authed_all_items on public.items
@@ -119,24 +126,27 @@ function calcMetrics(items, transactions, asOfDate = new Date()) {
     if (tx.quantity < 0 && tx.date >= cutoff) r.usage12m += -tx.quantity;
   }
   return Object.values(byItem).map(r => {
-    const avgMonthly = r.usage12m / 12;
-    const mos = avgMonthly > 0 ? r.onHand / avgMonthly : null;
-    const targetStock = avgMonthly * (r.item.target_mos || 0);
-    const pack = r.item.case_pack || 1;
-    const shortfall = Math.max(0, targetStock - r.onHand);
-    const suggested = Math.ceil(shortfall / pack) * pack;
+    const avgMonthly        = r.usage12m / 12;
+    const mos               = avgMonthly > 0 ? r.onHand / avgMonthly : null;
+    const daysLeft          = avgMonthly > 0 ? r.onHand / (avgMonthly / 30) : null;
+    const leadTimeMos       = (r.item.lead_time_days || 0) / 30;
+    const effectiveTargetMos = (r.item.target_mos || 0) + leadTimeMos;
+    const targetStock       = avgMonthly * effectiveTargetMos;
+    const pack              = r.item.case_pack || 1;
+    const shortfall         = Math.max(0, targetStock - r.onHand);
+    const suggested         = Math.ceil(shortfall / pack) * pack;
     let status;
     if (avgMonthly === 0) status = 'No Usage';
-    else if (mos < r.item.target_mos) status = 'Reorder';
-    else if (mos > 1.5 * r.item.target_mos) status = 'Overstock';
+    else if (mos < effectiveTargetMos) status = 'Reorder';
+    else if (mos > 1.5 * effectiveTargetMos) status = 'Overstock';
     else status = 'OK';
-    return { ...r, avgMonthly, mos, targetStock, suggested, status };
+    return { ...r, avgMonthly, mos, daysLeft, leadTimeMos, effectiveTargetMos, targetStock, suggested, status };
   });
 }
 
-function mosColor(mos, target) {
+function mosColor(mos, effectiveTarget) {
   if (mos === null || mos === undefined || !isFinite(mos)) return 'bg-slate-200 text-slate-600';
-  const r = mos / (target || 1);
+  const r = mos / (effectiveTarget || 1);
   if (r < 0.4) return 'bg-red-600 text-white';
   if (r < 0.8) return 'bg-red-400 text-white';
   if (r < 1.0) return 'bg-orange-400 text-white';
@@ -245,14 +255,12 @@ function SetupScreen({ onRetry }) {
     <div className="min-h-screen bg-slate-100 p-6">
       <div className="max-w-3xl mx-auto bg-white rounded-lg shadow">
         <div className="brand rounded-t-lg px-6 py-4">
-          <h1 className="text-xl font-bold text-white">Database Setup Required</h1>
+          <h1 className="text-xl font-bold text-white">Database Setup / Migration Required</h1>
         </div>
         <div className="p-6">
           <p className="mb-4 text-slate-700">
-            The <code className="bg-slate-100 px-1.5 py-0.5 rounded text-sm">items</code> and{' '}
-            <code className="bg-slate-100 px-1.5 py-0.5 rounded text-sm">transactions</code> tables don't exist yet. The
-            Supabase anon key can't create tables directly — please paste this SQL into the{' '}
-            <strong>Supabase SQL Editor</strong> and run it once, then click Retry.
+            The database needs setup or migration (missing tables or columns). Paste this SQL into the{' '}
+            <strong>Supabase SQL Editor</strong> and run it, then click Retry. Safe to re-run.
           </p>
           <div className="flex gap-2 mb-2">
             <button onClick={copy} className="px-4 py-2 brand text-white rounded text-sm">
@@ -301,24 +309,26 @@ function Dashboard({ items, transactions }) {
         <Table>
           <thead className="bg-slate-50">
             <tr>
-              <Th>Item</Th><Th>On Hand</Th><Th>12M Usage</Th><Th>Avg/Mo</Th>
-              <Th>MOS</Th><Th>Target MOS</Th><Th>Suggested Qty</Th>
+              <Th>SKU</Th><Th>Item</Th><Th>On Hand</Th><Th>Avg/Mo</Th>
+              <Th>Days Left</Th><Th>MOS</Th><Th>Target MOS</Th><Th>Lead (d)</Th><Th>Suggested Qty</Th>
             </tr>
           </thead>
           <tbody>
             {reorderRows.map(m => (
               <tr key={m.item.id} className="border-t">
+                <Td className="text-slate-500">{m.item.sku || ''}</Td>
                 <Td className="font-medium">{m.item.name}</Td>
                 <Td>{fmt(m.onHand)}</Td>
-                <Td>{fmt(m.usage12m)}</Td>
                 <Td>{fmt(m.avgMonthly, 1)}</Td>
-                <Td><span className={`px-2 py-0.5 text-xs font-semibold rounded ${mosColor(m.mos, m.item.target_mos)}`}>{fmt(m.mos, 1)}</span></Td>
+                <Td>{m.daysLeft === null ? '—' : fmt(Math.round(m.daysLeft))}</Td>
+                <Td><span className={`px-2 py-0.5 text-xs font-semibold rounded ${mosColor(m.mos, m.effectiveTargetMos)}`}>{fmt(m.mos, 1)}</span></Td>
                 <Td>{m.item.target_mos}</Td>
+                <Td>{m.item.lead_time_days}</Td>
                 <Td className="font-bold brand-text">{fmt(m.suggested)}</Td>
               </tr>
             ))}
             {reorderRows.length === 0 && (
-              <tr><td colSpan="7" className="text-center py-6 text-slate-500">Nothing to reorder</td></tr>
+              <tr><td colSpan="9" className="text-center py-6 text-slate-500">Nothing to reorder</td></tr>
             )}
           </tbody>
         </Table>
@@ -328,18 +338,19 @@ function Dashboard({ items, transactions }) {
         <Table>
           <thead className="bg-slate-50">
             <tr>
-              <Th>Item</Th><Th>On Hand</Th><Th>12M Usage</Th><Th>Avg/Mo</Th>
+              <Th>SKU</Th><Th>Item</Th><Th>On Hand</Th><Th>12M Usage</Th><Th>Avg/Mo</Th>
               <Th>MOS</Th><Th>Target</Th><Th>Status</Th>
             </tr>
           </thead>
           <tbody>
             {allRows.map(m => (
               <tr key={m.item.id} className="border-t">
+                <Td className="text-slate-500">{m.item.sku || ''}</Td>
                 <Td className="font-medium">{m.item.name}</Td>
                 <Td>{fmt(m.onHand)}</Td>
                 <Td>{fmt(m.usage12m)}</Td>
                 <Td>{fmt(m.avgMonthly, 1)}</Td>
-                <Td><span className={`px-2 py-0.5 text-xs font-semibold rounded ${mosColor(m.mos, m.item.target_mos)}`}>{fmt(m.mos, 1)}</span></Td>
+                <Td><span className={`px-2 py-0.5 text-xs font-semibold rounded ${mosColor(m.mos, m.effectiveTargetMos)}`}>{fmt(m.mos, 1)}</span></Td>
                 <Td>{m.item.target_mos}</Td>
                 <Td><StatusBadge status={m.status} /></Td>
               </tr>
@@ -354,7 +365,7 @@ function Dashboard({ items, transactions }) {
 // ─────────────────────────────────────────────────────────────
 // Enter Transaction
 // ─────────────────────────────────────────────────────────────
-function TransactionPage({ items, onSaved }) {
+function TransactionPage({ items, session, onSaved }) {
   const [date, setDate] = useState(iso(new Date()));
   const [po, setPo] = useState('');
   const [itemId, setItemId] = useState('');
@@ -375,7 +386,11 @@ function TransactionPage({ items, onSaved }) {
     const q = sign === '-' ? -n : n;
     setSaving(true);
     const { error } = await sb.from('transactions').insert({
-      date, po_number: po.trim() || null, item_id: itemId, quantity: q,
+      date,
+      po_number: po.trim() || null,
+      item_id: itemId,
+      quantity: q,
+      user_email: session?.user?.email || null,
     });
     setSaving(false);
     if (error) { setMsg({ err: error.message }); return; }
@@ -429,14 +444,173 @@ function TransactionPage({ items, onSaved }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Transactions History (view / edit / delete)
+// ─────────────────────────────────────────────────────────────
+function TransactionsHistory({ items, transactions, session, onChange }) {
+  const [search, setSearch] = useState('');
+  const [start, setStart]   = useState('');
+  const [end, setEnd]       = useState('');
+  const [type, setType]     = useState('all');
+  const [editing, setEditing] = useState(null);
+  const [limit, setLimit]   = useState(100);
+
+  const itemMap = useMemo(() => Object.fromEntries(items.map(i => [i.id, i])), [items]);
+  const activeItems = useMemo(() => items.filter(i => i.active).sort((a, b) => a.name.localeCompare(b.name)), [items]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return transactions
+      .filter(t => {
+        if (start && t.date < start) return false;
+        if (end   && t.date > end)   return false;
+        if (type === 'usage' && t.quantity >= 0) return false;
+        if (type === 'receipt' && t.quantity < 0) return false;
+        if (q) {
+          const it = itemMap[t.item_id];
+          const hay = [it?.name, it?.sku, t.po_number, t.user_email].filter(Boolean).join(' ').toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.created_at || '').localeCompare(a.created_at || '')));
+  }, [transactions, search, start, end, type, itemMap]);
+
+  const shown = filtered.slice(0, limit);
+
+  async function deleteTx(id) {
+    if (!confirm('Delete this transaction? This cannot be undone.')) return;
+    const { error } = await sb.from('transactions').delete().eq('id', id);
+    if (error) { alert(error.message); return; }
+    onChange();
+  }
+
+  async function saveEdit() {
+    const e = editing;
+    if (!e) return;
+    const n = parseInt(e.quantity);
+    if (isNaN(n) || n === 0) { alert('Quantity must be a non-zero integer'); return; }
+    const { error } = await sb.from('transactions').update({
+      date: e.date,
+      po_number: (e.po_number || '').trim() || null,
+      item_id: e.item_id,
+      quantity: n,
+    }).eq('id', e.id);
+    if (error) { alert(error.message); return; }
+    setEditing(null);
+    onChange();
+  }
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-2xl font-bold brand-text">Transactions</h2>
+
+      <div className="bg-white rounded-lg shadow p-4 flex flex-wrap items-end gap-3">
+        <Field label="Search">
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="item, SKU, PO#, user…" className="border rounded px-3 py-2 w-64" />
+        </Field>
+        <Field label="From">
+          <input type="date" value={start} onChange={e => setStart(e.target.value)} className="border rounded px-3 py-2" />
+        </Field>
+        <Field label="To">
+          <input type="date" value={end} onChange={e => setEnd(e.target.value)} className="border rounded px-3 py-2" />
+        </Field>
+        <Field label="Type">
+          <select value={type} onChange={e => setType(e.target.value)} className="border rounded px-3 py-2 bg-white">
+            <option value="all">All</option>
+            <option value="usage">Usage only (−)</option>
+            <option value="receipt">Receipts only (+)</option>
+          </select>
+        </Field>
+        <button onClick={() => { setSearch(''); setStart(''); setEnd(''); setType('all'); }} className="text-sm text-slate-600 hover:underline ml-auto">Clear filters</button>
+      </div>
+
+      <Section title={`${filtered.length.toLocaleString()} transaction${filtered.length === 1 ? '' : 's'} — showing ${shown.length}`}>
+        <Table>
+          <thead className="bg-slate-50">
+            <tr>
+              <Th>Date</Th><Th>PO#</Th><Th>Item</Th><Th>Qty</Th><Th>Type</Th><Th>Entered By</Th><Th className="text-right pr-5">Actions</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map(t => {
+              const it = itemMap[t.item_id];
+              return (
+                <tr key={t.id} className="border-t">
+                  <Td>{t.date}</Td>
+                  <Td>{t.po_number || ''}</Td>
+                  <Td className="font-medium">
+                    {it?.sku && <span className="text-slate-500 mr-2">{it.sku}</span>}
+                    {it?.name || <span className="text-red-600">(deleted)</span>}
+                  </Td>
+                  <Td className={t.quantity < 0 ? 'text-red-600' : 'text-green-700'}>{t.quantity > 0 ? '+' : ''}{t.quantity}</Td>
+                  <Td className="text-xs">{t.quantity < 0 ? 'Usage' : 'Receipt'}</Td>
+                  <Td className="text-xs text-slate-500">{t.user_email || ''}</Td>
+                  <Td className="text-right pr-5 space-x-2">
+                    <button onClick={() => setEditing({ ...t })} className="bg-slate-600 text-white text-xs px-3 py-1 rounded">Edit</button>
+                    <button onClick={() => deleteTx(t.id)} className="bg-red-600 text-white text-xs px-3 py-1 rounded">Delete</button>
+                  </Td>
+                </tr>
+              );
+            })}
+            {shown.length === 0 && (
+              <tr><td colSpan="7" className="text-center py-6 text-slate-500">No transactions match.</td></tr>
+            )}
+          </tbody>
+        </Table>
+        {filtered.length > shown.length && (
+          <div className="p-3 text-center border-t">
+            <button onClick={() => setLimit(n => n + 100)} className="text-sm brand-text font-medium hover:underline">
+              Load 100 more ({filtered.length - shown.length} remaining)
+            </button>
+          </div>
+        )}
+      </Section>
+
+      {editing && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEditing(null)}>
+          <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold brand-text mb-4">Edit Transaction</h3>
+            <div className="space-y-3">
+              <Field label="Date">
+                <input type="date" value={editing.date} onChange={e => setEditing({ ...editing, date: e.target.value })} className="w-full border rounded px-3 py-2" />
+              </Field>
+              <Field label="PO #">
+                <input value={editing.po_number || ''} onChange={e => setEditing({ ...editing, po_number: e.target.value })} className="w-full border rounded px-3 py-2" />
+              </Field>
+              <Field label="Item">
+                <select value={editing.item_id} onChange={e => setEditing({ ...editing, item_id: e.target.value })} className="w-full border rounded px-3 py-2 bg-white">
+                  {activeItems.map(i => <option key={i.id} value={i.id}>{i.sku ? `${i.sku} — ${i.name}` : i.name}</option>)}
+                  {!activeItems.find(i => i.id === editing.item_id) && itemMap[editing.item_id] && (
+                    <option value={editing.item_id}>{itemMap[editing.item_id].name} (archived)</option>
+                  )}
+                </select>
+              </Field>
+              <Field label="Quantity (negative for usage)">
+                <input type="number" value={editing.quantity} onChange={e => setEditing({ ...editing, quantity: e.target.value })} className="w-full border rounded px-3 py-2" />
+              </Field>
+              <div className="text-xs text-slate-500">Originally entered by: {editing.user_email || '(unknown)'}</div>
+            </div>
+            <div className="flex gap-2 mt-5 justify-end">
+              <button onClick={() => setEditing(null)} className="px-4 py-2 text-slate-700">Cancel</button>
+              <button onClick={saveEdit} className="brand text-white px-4 py-2 rounded font-medium">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // Items
 // ─────────────────────────────────────────────────────────────
 function ItemsPage({ items, onChange }) {
-  const [form, setForm] = useState({ name: '', case_pack: 1, lead_time_days: 30, target_mos: 3 });
+  const [form, setForm] = useState({ sku: '', name: '', case_pack: 1, lead_time_days: 30, target_mos: 3 });
   const [adding, setAdding] = useState(false);
   const [addErr, setAddErr] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [edits, setEdits] = useState({});
+  const [search, setSearch] = useState('');
 
   async function add(e) {
     e.preventDefault();
@@ -444,6 +618,7 @@ function ItemsPage({ items, onChange }) {
     if (!form.name.trim()) { setAddErr('Name required'); return; }
     setAdding(true);
     const { error } = await sb.from('items').insert({
+      sku: form.sku.trim() || null,
       name: form.name.trim(),
       case_pack: parseInt(form.case_pack) || 1,
       lead_time_days: parseInt(form.lead_time_days) || 30,
@@ -452,7 +627,7 @@ function ItemsPage({ items, onChange }) {
     });
     setAdding(false);
     if (error) { setAddErr(error.message); return; }
-    setForm({ name: '', case_pack: 1, lead_time_days: 30, target_mos: 3 });
+    setForm({ sku: '', name: '', case_pack: 1, lead_time_days: 30, target_mos: 3 });
     onChange();
   }
 
@@ -460,6 +635,8 @@ function ItemsPage({ items, onChange }) {
     const e = edits[id];
     if (!e) return;
     const patch = {};
+    if ('sku' in e)            patch.sku            = e.sku.trim() || null;
+    if ('name' in e)           patch.name           = e.name.trim();
     if ('case_pack' in e)      patch.case_pack      = parseInt(e.case_pack)      || 1;
     if ('lead_time_days' in e) patch.lead_time_days = parseInt(e.lead_time_days) || 0;
     if ('target_mos' in e)     patch.target_mos     = parseInt(e.target_mos)     || 0;
@@ -475,8 +652,10 @@ function ItemsPage({ items, onChange }) {
     onChange();
   }
 
+  const q = search.trim().toLowerCase();
   const rows = [...items]
     .filter(i => showArchived || i.active)
+    .filter(i => !q || (i.name || '').toLowerCase().includes(q) || (i.sku || '').toLowerCase().includes(q))
     .sort((a, b) => (a.active === b.active ? a.name.localeCompare(b.name) : (a.active ? -1 : 1)));
 
   return (
@@ -484,7 +663,10 @@ function ItemsPage({ items, onChange }) {
       <h2 className="text-2xl font-bold brand-text">Items</h2>
 
       <Section title="Add New Item">
-        <form onSubmit={add} className="p-5 grid grid-cols-1 md:grid-cols-5 gap-3">
+        <form onSubmit={add} className="p-5 grid grid-cols-1 md:grid-cols-6 gap-3">
+          <Field label="SKU">
+            <input value={form.sku} onChange={e => setForm({ ...form, sku: e.target.value })} placeholder="Optional" className="w-full border rounded px-3 py-2" />
+          </Field>
           <Field label="Name">
             <input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full border rounded px-3 py-2" />
           </Field>
@@ -502,23 +684,26 @@ function ItemsPage({ items, onChange }) {
               {adding ? 'Adding…' : 'Add Item'}
             </button>
           </div>
-          {addErr && <div className="md:col-span-5 text-red-600 text-sm">{addErr}</div>}
+          {addErr && <div className="md:col-span-6 text-red-600 text-sm">{addErr}</div>}
         </form>
       </Section>
 
       <Section
         title={`Items (${rows.length})`}
         right={
-          <label className="flex items-center gap-2 text-sm text-slate-600">
-            <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />
-            Show archived
-          </label>
+          <div className="flex items-center gap-4">
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or SKU…" className="border rounded px-3 py-1.5 text-sm" />
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />
+              Show archived
+            </label>
+          </div>
         }
       >
         <Table>
           <thead className="bg-slate-50">
             <tr>
-              <Th>Name</Th><Th>Case Pack</Th><Th>Lead Time (d)</Th><Th>Target MOS</Th><Th>Status</Th><Th className="text-right pr-5">Actions</Th>
+              <Th>SKU</Th><Th>Name</Th><Th>Case Pack</Th><Th>Lead Time (d)</Th><Th>Target MOS</Th><Th>Status</Th><Th className="text-right pr-5">Actions</Th>
             </tr>
           </thead>
           <tbody>
@@ -528,7 +713,16 @@ function ItemsPage({ items, onChange }) {
               const setField = (k, v) => setEdits(prev => ({ ...prev, [it.id]: { ...(prev[it.id] || {}), [k]: v } }));
               return (
                 <tr key={it.id} className={`border-t ${!it.active ? 'bg-slate-50 text-slate-400' : ''}`}>
-                  <Td className="font-medium">{it.name}</Td>
+                  <Td>
+                    <input value={e.sku ?? it.sku ?? ''}
+                      onChange={ev => setField('sku', ev.target.value)}
+                      className="w-24 border rounded px-2 py-1" placeholder="—" />
+                  </Td>
+                  <Td>
+                    <input value={e.name ?? it.name}
+                      onChange={ev => setField('name', ev.target.value)}
+                      className="w-56 border rounded px-2 py-1 font-medium" />
+                  </Td>
                   <Td>
                     <input type="number" min="1" value={e.case_pack ?? it.case_pack}
                       onChange={ev => setField('case_pack', ev.target.value)}
@@ -557,7 +751,7 @@ function ItemsPage({ items, onChange }) {
               );
             })}
             {rows.length === 0 && (
-              <tr><td colSpan="6" className="text-center py-6 text-slate-500">No items yet.</td></tr>
+              <tr><td colSpan="7" className="text-center py-6 text-slate-500">No items match.</td></tr>
             )}
           </tbody>
         </Table>
@@ -571,10 +765,13 @@ function ItemsPage({ items, onChange }) {
 // ─────────────────────────────────────────────────────────────
 function POGuidance({ items, transactions }) {
   const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
   const metrics = useMemo(() => calcMetrics(items, transactions), [items, transactions]);
   const active = metrics.filter(m => m.item.active);
   let rows = active;
   if (filter !== 'all') rows = active.filter(m => m.status === filter);
+  const q = search.trim().toLowerCase();
+  if (q) rows = rows.filter(m => (m.item.name || '').toLowerCase().includes(q) || (m.item.sku || '').toLowerCase().includes(q));
   rows = [...rows].sort((a, b) => {
     const order = { 'Reorder': 0, 'OK': 1, 'Overstock': 2, 'No Usage': 3 };
     if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
@@ -584,24 +781,28 @@ function POGuidance({ items, transactions }) {
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold brand-text">PO Guidance</h2>
-      <div className="flex gap-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
         {[['all', 'All'], ['Reorder', 'Reorder'], ['OK', 'OK'], ['Overstock', 'Overstock'], ['No Usage', 'No Usage']].map(([k, lbl]) => (
           <button key={k} onClick={() => setFilter(k)}
             className={`px-3 py-1.5 rounded border ${filter === k ? 'brand text-white border-transparent' : 'bg-white hover:bg-slate-100'}`}>
             {lbl}
           </button>
         ))}
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or SKU…" className="ml-auto border rounded px-3 py-1.5 text-sm" />
       </div>
       <Section title={`${rows.length} item${rows.length === 1 ? '' : 's'}`}>
         <Table>
           <thead className="bg-slate-50">
             <tr>
+              <Th>SKU</Th>
               <Th>Item</Th>
               <Th>On Hand</Th>
               <Th>12M Usage</Th>
               <Th>Avg/Mo</Th>
+              <Th>Days Left</Th>
               <Th>MOS</Th>
               <Th>Target MOS</Th>
+              <Th>Lead (d)</Th>
               <Th>Target Stock</Th>
               <Th>Case Pack</Th>
               <Th>Suggested Order</Th>
@@ -611,12 +812,15 @@ function POGuidance({ items, transactions }) {
           <tbody>
             {rows.map(m => (
               <tr key={m.item.id} className="border-t">
+                <Td className="text-slate-500">{m.item.sku || ''}</Td>
                 <Td className="font-medium">{m.item.name}</Td>
                 <Td>{fmt(m.onHand)}</Td>
                 <Td>{fmt(m.usage12m)}</Td>
                 <Td>{fmt(m.avgMonthly, 1)}</Td>
-                <Td><span className={`px-2 py-0.5 text-xs font-semibold rounded ${mosColor(m.mos, m.item.target_mos)}`}>{fmt(m.mos, 1)}</span></Td>
+                <Td>{m.daysLeft === null ? '—' : fmt(Math.round(m.daysLeft))}</Td>
+                <Td><span className={`px-2 py-0.5 text-xs font-semibold rounded ${mosColor(m.mos, m.effectiveTargetMos)}`}>{fmt(m.mos, 1)}</span></Td>
                 <Td>{m.item.target_mos}</Td>
+                <Td>{m.item.lead_time_days}</Td>
                 <Td>{fmt(m.targetStock, 0)}</Td>
                 <Td>{m.item.case_pack}</Td>
                 <Td className="font-bold brand-text">{fmt(m.suggested)}</Td>
@@ -624,7 +828,7 @@ function POGuidance({ items, transactions }) {
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan="10" className="text-center py-6 text-slate-500">No items match this filter.</td></tr>
+              <tr><td colSpan="13" className="text-center py-6 text-slate-500">No items match.</td></tr>
             )}
           </tbody>
         </Table>
@@ -866,6 +1070,7 @@ function ImportPage({ transactions, items, onComplete }) {
       const normItems = itemsParsed
         .filter(r => r.name && r.name.trim())
         .map(r => ({
+          sku: (r.sku || '').trim() || null,
           name: r.name.trim(),
           case_pack: parseInt(r.case_pack) || 1,
           lead_time_days: parseInt(r.lead_time_days) || 30,
@@ -876,7 +1081,10 @@ function ImportPage({ transactions, items, onComplete }) {
       setStatus('Checking existing items…');
       const existing = await fetchAll('items');
       const existingNames = new Set(existing.map(i => i.name));
-      const toInsert = normItems.filter(i => !existingNames.has(i.name));
+      const existingSkus  = new Set(existing.filter(i => i.sku).map(i => i.sku));
+      const toInsert = normItems.filter(i =>
+        !existingNames.has(i.name) && !(i.sku && existingSkus.has(i.sku))
+      );
 
       if (toInsert.length > 0) {
         setStatus(`Inserting ${toInsert.length} new item(s)…`);
@@ -884,10 +1092,11 @@ function ImportPage({ transactions, items, onComplete }) {
         if (error) throw new Error('Items insert failed: ' + error.message);
       }
 
-      // Rebuild name → id
+      // Rebuild lookup maps (SKU takes priority over name)
       setStatus('Fetching item IDs…');
       const allItems = await fetchAll('items');
       const nameToId = Object.fromEntries(allItems.map(i => [i.name, i.id]));
+      const skuToId  = Object.fromEntries(allItems.filter(i => i.sku).map(i => [i.sku, i.id]));
 
       // ── Transactions
       setStatus('Parsing transactions CSV…');
@@ -895,9 +1104,15 @@ function ImportPage({ transactions, items, onComplete }) {
       const normTx = [];
       const unmatched = new Map();
       for (const r of txParsed) {
-        if (!r.item_name || !r.date) continue;
-        const id = nameToId[r.item_name.trim()];
-        if (!id) { unmatched.set(r.item_name, (unmatched.get(r.item_name) || 0) + 1); continue; }
+        if (!r.date) continue;
+        const sku  = (r.sku || r.item_sku || '').trim();
+        const name = (r.item_name || '').trim();
+        const id = (sku && skuToId[sku]) || (name && nameToId[name]);
+        if (!id) {
+          const label = sku || name || '(blank)';
+          unmatched.set(label, (unmatched.get(label) || 0) + 1);
+          continue;
+        }
         const q = parseInt(r.quantity);
         if (isNaN(q)) continue;
         normTx.push({
@@ -951,14 +1166,15 @@ function ImportPage({ transactions, items, onComplete }) {
             </p>
           </div>
           <div className="border-t pt-4 grid md:grid-cols-2 gap-4">
-            <Field label="items CSV (name, case_pack, lead_time_days, target_mos, active)">
+            <Field label="items CSV (sku*, name, case_pack, lead_time_days, target_mos, active)">
               <input type="file" accept=".csv,text/csv" onChange={e => e.target.files[0] && onFile(e.target.files[0], 'items')} className="text-sm" />
               {itemsCsv && <div className="text-xs text-green-700 mt-1">✓ {itemsCsv.name}</div>}
             </Field>
-            <Field label="transactions CSV (date, po_number, item_name, quantity)">
+            <Field label="transactions CSV (date, po_number, sku* or item_name, quantity)">
               <input type="file" accept=".csv,text/csv" onChange={e => e.target.files[0] && onFile(e.target.files[0], 'tx')} className="text-sm" />
               {txCsv && <div className="text-xs text-green-700 mt-1">✓ {txCsv.name}</div>}
             </Field>
+            <div className="md:col-span-2 text-xs text-slate-500">* sku optional; if present it takes priority over name when matching.</div>
           </div>
         </div>
       </Section>
@@ -1022,8 +1238,10 @@ function ExportPage({ items, transactions }) {
         return {
           Date: t.date,
           'PO#': t.po_number || '',
+          SKU: it?.sku || '',
           Item: it ? it.name : '(unknown)',
           Quantity: t.quantity,
+          'Entered By': t.user_email || '',
         };
       });
     const s1 = XLSX.utils.json_to_sheet(txRows);
@@ -1032,12 +1250,14 @@ function ExportPage({ items, transactions }) {
     const poRows = metrics
       .sort((a, b) => a.item.name.localeCompare(b.item.name))
       .map(m => ({
+        SKU: m.item.sku || '',
         Item: m.item.name,
         Active: m.item.active ? 'Yes' : 'No',
         'On Hand': m.onHand,
         '12M Usage': m.usage12m,
         'Avg/Mo': Number(m.avgMonthly.toFixed(2)),
         MOS: m.mos === null ? '' : Number(m.mos.toFixed(2)),
+        'Days Left': m.daysLeft === null ? '' : Math.round(m.daysLeft),
         'Target MOS': m.item.target_mos,
         'Target Stock': Math.round(m.targetStock),
         'Case Pack': m.item.case_pack,
@@ -1092,13 +1312,14 @@ function ReportsPage({ items, transactions }) {
       .filter(m => m.status === 'Reorder')
       .sort((a, b) => (a.mos ?? 0) - (b.mos ?? 0))
       .map(m => ({
+        SKU: m.item.sku || '',
         Item: m.item.name,
         'On Hand': m.onHand,
         'Avg/Mo': Number(m.avgMonthly.toFixed(2)),
         MOS: m.mos === null ? '' : Number(m.mos.toFixed(2)),
         'Target MOS': m.item.target_mos,
-        'Case Pack': m.item.case_pack,
         'Lead Time (d)': m.item.lead_time_days,
+        'Case Pack': m.item.case_pack,
         'Suggested Order': m.suggested,
       }));
     writeWb([['Reorder', rows]], 'reorder-report');
@@ -1108,12 +1329,15 @@ function ReportsPage({ items, transactions }) {
     const rows = [...active]
       .sort((a, b) => a.item.name.localeCompare(b.item.name))
       .map(m => ({
+        SKU: m.item.sku || '',
         Item: m.item.name,
         'On Hand': m.onHand,
         '12M Usage': m.usage12m,
         'Avg/Mo': Number(m.avgMonthly.toFixed(2)),
         MOS: m.mos === null ? '' : Number(m.mos.toFixed(2)),
+        'Days Left': m.daysLeft === null ? '' : Math.round(m.daysLeft),
         'Target MOS': m.item.target_mos,
+        'Lead Time (d)': m.item.lead_time_days,
         'Target Stock': Math.round(m.targetStock),
         'Case Pack': m.item.case_pack,
         'Suggested Order': m.suggested,
@@ -1135,9 +1359,11 @@ function ReportsPage({ items, transactions }) {
         return {
           Date: t.date,
           'PO#': t.po_number || '',
+          SKU: it?.sku || '',
           Item: it ? it.name : '(unknown)',
           Quantity: t.quantity,
           Type: t.quantity < 0 ? 'Usage' : 'Receipt',
+          'Entered By': t.user_email || '',
         };
       });
     writeWb([['Transactions', rows]], `transactions-${txStart || 'start'}-to-${txEnd || iso(new Date())}`);
@@ -1162,7 +1388,7 @@ function ReportsPage({ items, transactions }) {
     const rows = Object.values(byItem)
       .sort((a, b) => a.item.name.localeCompare(b.item.name))
       .map(r => {
-        const obj = { Item: r.item.name };
+        const obj = { SKU: r.item.sku || '', Item: r.item.name };
         let total = 0;
         for (const m of months) { obj[m] = r.months[m]; total += r.months[m]; }
         obj.Total = total;
@@ -1193,6 +1419,7 @@ function ReportsPage({ items, transactions }) {
     const rows = Object.values(byItem)
       .sort((a, b) => a.item.name.localeCompare(b.item.name))
       .map(r => ({
+        SKU: r.item.sku || '',
         Item: r.item.name,
         'Last 1M':  r.m1,
         'Last 3M':  r.m3,
@@ -1207,15 +1434,14 @@ function ReportsPage({ items, transactions }) {
     const rows = active
       .filter(m => m.avgMonthly > 0)
       .map(m => {
-        const dailyUse = m.avgMonthly / 30;
-        const daysLeft = dailyUse > 0 ? m.onHand / dailyUse : null;
-        const deficitDays = daysLeft !== null ? daysLeft - m.item.lead_time_days : null;
+        const deficitDays = m.daysLeft !== null ? m.daysLeft - m.item.lead_time_days : null;
         return {
+          SKU: m.item.sku || '',
           Item: m.item.name,
           'On Hand': m.onHand,
           'Avg/Mo': Number(m.avgMonthly.toFixed(2)),
           'Lead Time (d)': m.item.lead_time_days,
-          'Days of Supply': daysLeft === null ? '' : Math.round(daysLeft),
+          'Days of Supply': m.daysLeft === null ? '' : Math.round(m.daysLeft),
           'Days vs Lead Time': deficitDays === null ? '' : Math.round(deficitDays),
           'At Risk': deficitDays !== null && deficitDays < 0 ? 'YES' : '',
         };
@@ -1321,6 +1547,7 @@ function MainApp({ session, signOut }) {
   const pages = [
     ['dashboard',   'Dashboard'],
     ['transaction', 'Enter Transaction'],
+    ['history',     'Transactions'],
     ['items',       'Items'],
     ['po',          'PO Guidance'],
     ['burn',        'Burn Rate'],
@@ -1354,14 +1581,15 @@ function MainApp({ session, signOut }) {
           <div className="text-slate-500">Loading…</div>
         ) : (
           <>
-            {page === 'dashboard'   && <Dashboard    items={items} transactions={transactions} />}
-            {page === 'transaction' && <TransactionPage items={items} onSaved={refresh} />}
-            {page === 'items'       && <ItemsPage    items={items} onChange={refresh} />}
-            {page === 'po'          && <POGuidance   items={items} transactions={transactions} />}
-            {page === 'burn'        && <BurnRate     items={items} transactions={transactions} />}
-            {page === 'reports'     && <ReportsPage  items={items} transactions={transactions} />}
-            {page === 'import'      && <ImportPage   items={items} transactions={transactions} onComplete={refresh} />}
-            {page === 'export'      && <ExportPage   items={items} transactions={transactions} />}
+            {page === 'dashboard'   && <Dashboard          items={items} transactions={transactions} />}
+            {page === 'transaction' && <TransactionPage    items={items} session={session} onSaved={refresh} />}
+            {page === 'history'     && <TransactionsHistory items={items} transactions={transactions} session={session} onChange={refresh} />}
+            {page === 'items'       && <ItemsPage          items={items} onChange={refresh} />}
+            {page === 'po'          && <POGuidance         items={items} transactions={transactions} />}
+            {page === 'burn'        && <BurnRate           items={items} transactions={transactions} />}
+            {page === 'reports'     && <ReportsPage        items={items} transactions={transactions} />}
+            {page === 'import'      && <ImportPage         items={items} transactions={transactions} onComplete={refresh} />}
+            {page === 'export'      && <ExportPage         items={items} transactions={transactions} />}
           </>
         )}
       </main>
@@ -1389,15 +1617,32 @@ function App() {
 
   const checkTables = useCallback(async () => {
     setChecking(true);
-    const r1 = await sb.from('items').select('id').limit(1);
-    const r2 = await sb.from('transactions').select('id').limit(1);
-    const missing = (e) => e && (
+    const tableChecks = await Promise.all([
+      sb.from('items').select('id').limit(1),
+      sb.from('transactions').select('id').limit(1),
+    ]);
+    const tableMissing = (e) => e && (
       e.code === '42P01' ||
       e.code === 'PGRST205' ||
       /relation .* does not exist/i.test(e.message || '') ||
       /schema cache/i.test(e.message || '')
     );
-    setTablesOk(!(missing(r1.error) || missing(r2.error)));
+    if (tableChecks.some(r => tableMissing(r.error))) {
+      setTablesOk(false);
+      setChecking(false);
+      return;
+    }
+    // Column migration check
+    const colChecks = await Promise.all([
+      sb.from('items').select('sku').limit(1),
+      sb.from('transactions').select('user_email').limit(1),
+    ]);
+    const colMissing = (e) => e && (
+      e.code === '42703' ||
+      e.code === 'PGRST204' ||
+      /column .* does not exist/i.test(e.message || '')
+    );
+    setTablesOk(!colChecks.some(r => colMissing(r.error)));
     setChecking(false);
   }, []);
 
