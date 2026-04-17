@@ -1,0 +1,1416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Scott Inventory</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="referrer" content="no-referrer">
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+<style>
+  html, body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .brand { background-color: #0D2137; }
+  .brand-text { color: #0D2137; }
+</style>
+</head>
+<body class="bg-slate-100">
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+const SUPABASE_URL = 'https://vrmwapdnkfadomduxlxq.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZybXdhcGRua2ZhZG9tZHV4bHhxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0NDA2NzYsImV4cCI6MjA5MjAxNjY3Nn0.FNzvm2mgK_jEOSwSiPcjQBVDFrEyh5V92Q--RiLNKGg';
+
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const R = window.Recharts;
+
+// ─────────────────────────────────────────────────────────────
+// Setup SQL (shown to user if tables don't exist)
+// ─────────────────────────────────────────────────────────────
+const SETUP_SQL = `-- Run this in the Supabase SQL Editor
+
+create table if not exists public.items (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  case_pack integer not null default 1,
+  lead_time_days integer not null default 30,
+  target_mos integer not null default 3,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.transactions (
+  id uuid primary key default gen_random_uuid(),
+  date date not null,
+  po_number text,
+  item_id uuid not null references public.items(id) on delete restrict,
+  quantity integer not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_transactions_item on public.transactions(item_id);
+create index if not exists idx_transactions_date on public.transactions(date);
+
+alter table public.items enable row level security;
+alter table public.transactions enable row level security;
+
+-- Policies: any authenticated user can read/write
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename='items' and policyname='authed_all_items') then
+    create policy authed_all_items on public.items
+      for all to authenticated using (true) with check (true);
+  end if;
+  if not exists (select 1 from pg_policies where tablename='transactions' and policyname='authed_all_transactions') then
+    create policy authed_all_transactions on public.transactions
+      for all to authenticated using (true) with check (true);
+  end if;
+end $$;
+`;
+
+// ─────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────
+function fmt(n, d = 0) {
+  if (n === null || n === undefined || !isFinite(n)) return '—';
+  return Number(n).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+function iso(d) { return d.toISOString().slice(0, 10); }
+function parseDate(s) { return new Date(s + 'T00:00:00Z'); }
+function addDays(d, n) { const r = new Date(d); r.setUTCDate(r.getUTCDate() + n); return r; }
+function daysBetween(a, b) { return Math.round((b - a) / 86400000); }
+function truncate(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+
+async function fetchAll(table, orderCol = null) {
+  const page = 1000;
+  let all = [];
+  let from = 0;
+  while (true) {
+    let q = sb.from(table).select('*').range(from, from + page - 1);
+    if (orderCol) q = q.order(orderCol);
+    const { data, error } = await q;
+    if (error) throw error;
+    all = all.concat(data);
+    if (data.length < page) break;
+    from += page;
+  }
+  return all;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Metrics
+// ─────────────────────────────────────────────────────────────
+function calcMetrics(items, transactions, asOfDate = new Date()) {
+  const cutoff = iso(addDays(asOfDate, -365));
+  const byItem = {};
+  for (const it of items) byItem[it.id] = { item: it, onHand: 0, usage12m: 0 };
+  for (const tx of transactions) {
+    const r = byItem[tx.item_id];
+    if (!r) continue;
+    r.onHand += tx.quantity;
+    if (tx.quantity < 0 && tx.date >= cutoff) r.usage12m += -tx.quantity;
+  }
+  return Object.values(byItem).map(r => {
+    const avgMonthly = r.usage12m / 12;
+    const mos = avgMonthly > 0 ? r.onHand / avgMonthly : null;
+    const targetStock = avgMonthly * (r.item.target_mos || 0);
+    const pack = r.item.case_pack || 1;
+    const shortfall = Math.max(0, targetStock - r.onHand);
+    const suggested = Math.ceil(shortfall / pack) * pack;
+    let status;
+    if (avgMonthly === 0) status = 'No Usage';
+    else if (mos < r.item.target_mos) status = 'Reorder';
+    else if (mos > 1.5 * r.item.target_mos) status = 'Overstock';
+    else status = 'OK';
+    return { ...r, avgMonthly, mos, targetStock, suggested, status };
+  });
+}
+
+function mosColor(mos, target) {
+  if (mos === null || mos === undefined || !isFinite(mos)) return 'bg-slate-200 text-slate-600';
+  const r = mos / (target || 1);
+  if (r < 0.4) return 'bg-red-600 text-white';
+  if (r < 0.8) return 'bg-red-400 text-white';
+  if (r < 1.0) return 'bg-orange-400 text-white';
+  if (r < 1.3) return 'bg-lime-400 text-slate-900';
+  if (r < 1.6) return 'bg-green-500 text-white';
+  return 'bg-amber-500 text-white';
+}
+
+function StatusBadge({ status }) {
+  const map = {
+    'Reorder':   'bg-red-600 text-white',
+    'Overstock': 'bg-amber-500 text-white',
+    'OK':        'bg-green-600 text-white',
+    'No Usage':  'bg-slate-400 text-white',
+  };
+  return <span className={`inline-block px-2 py-0.5 text-xs font-semibold rounded ${map[status] || ''}`}>{status}</span>;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Tiny layout components
+// ─────────────────────────────────────────────────────────────
+const Th = ({ children, className = '' }) => <th className={`text-left text-xs font-semibold text-slate-600 uppercase tracking-wide px-3 py-2 ${className}`}>{children}</th>;
+const Td = ({ children, className = '' }) => <td className={`px-3 py-2 text-sm ${className}`}>{children}</td>;
+
+const Section = ({ title, children, right }) => (
+  <section className="bg-white rounded-lg shadow">
+    <header className="flex items-center justify-between px-5 py-3 border-b">
+      <h3 className="text-base font-semibold brand-text">{title}</h3>
+      {right}
+    </header>
+    <div className="overflow-x-auto">{children}</div>
+  </section>
+);
+
+const Table = ({ children }) => <table className="w-full text-sm">{children}</table>;
+
+const KPICard = ({ label, value, color }) => (
+  <div className="bg-white rounded-lg shadow p-4 flex flex-col">
+    <div className={`h-1 -mx-4 -mt-4 mb-3 rounded-t-lg ${color}`}></div>
+    <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
+    <div className="text-3xl font-bold brand-text mt-1">{value}</div>
+  </div>
+);
+
+const Field = ({ label, children }) => (
+  <label className="block">
+    <div className="text-sm font-medium text-slate-700 mb-1">{label}</div>
+    {children}
+  </label>
+);
+
+// ─────────────────────────────────────────────────────────────
+// Auth screens
+// ─────────────────────────────────────────────────────────────
+function LoginScreen() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit(e) {
+    e.preventDefault();
+    setError(''); setLoading(true);
+    try {
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
+      <div className="bg-white rounded-lg shadow-lg p-8 w-full max-w-sm">
+        <div className="brand -mx-8 -mt-8 mb-6 px-8 py-5 rounded-t-lg">
+          <h1 className="text-2xl font-bold text-white">Scott Inventory</h1>
+        </div>
+        <h2 className="text-lg font-semibold mb-4">Sign in</h2>
+        <form onSubmit={submit} className="space-y-3">
+          <Field label="Email">
+            <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full border rounded px-3 py-2" />
+          </Field>
+          <Field label="Password">
+            <input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full border rounded px-3 py-2" />
+          </Field>
+          {error && <div className="text-red-600 text-sm">{error}</div>}
+          <button type="submit" disabled={loading} className="w-full brand text-white rounded py-2 font-medium disabled:opacity-50">
+            {loading ? '...' : 'Sign In'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function SetupScreen({ onRetry }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    await navigator.clipboard.writeText(SETUP_SQL);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+  return (
+    <div className="min-h-screen bg-slate-100 p-6">
+      <div className="max-w-3xl mx-auto bg-white rounded-lg shadow">
+        <div className="brand rounded-t-lg px-6 py-4">
+          <h1 className="text-xl font-bold text-white">Database Setup Required</h1>
+        </div>
+        <div className="p-6">
+          <p className="mb-4 text-slate-700">
+            The <code className="bg-slate-100 px-1.5 py-0.5 rounded text-sm">items</code> and{' '}
+            <code className="bg-slate-100 px-1.5 py-0.5 rounded text-sm">transactions</code> tables don't exist yet. The
+            Supabase anon key can't create tables directly — please paste this SQL into the{' '}
+            <strong>Supabase SQL Editor</strong> and run it once, then click Retry.
+          </p>
+          <div className="flex gap-2 mb-2">
+            <button onClick={copy} className="px-4 py-2 brand text-white rounded text-sm">
+              {copied ? 'Copied!' : 'Copy SQL'}
+            </button>
+            <button onClick={onRetry} className="px-4 py-2 bg-green-600 text-white rounded text-sm">
+              I've run the SQL — Retry
+            </button>
+          </div>
+          <pre className="bg-slate-900 text-green-300 p-4 rounded text-xs overflow-auto max-h-96 whitespace-pre-wrap">{SETUP_SQL}</pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Dashboard
+// ─────────────────────────────────────────────────────────────
+function Dashboard({ items, transactions }) {
+  const metrics = useMemo(() => calcMetrics(items, transactions), [items, transactions]);
+  const active = metrics.filter(m => m.item.active);
+  const kpis = {
+    reorder:   active.filter(m => m.status === 'Reorder').length,
+    overstock: active.filter(m => m.status === 'Overstock').length,
+    ok:        active.filter(m => m.status === 'OK').length,
+    noUsage:   active.filter(m => m.status === 'No Usage').length,
+    total:     active.reduce((s, m) => s + m.usage12m, 0),
+  };
+  const reorderRows = active.filter(m => m.status === 'Reorder').sort((a, b) => (a.mos ?? 0) - (b.mos ?? 0));
+  const allRows = [...active].sort((a, b) => a.item.name.localeCompare(b.item.name));
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold brand-text">Dashboard</h2>
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <KPICard label="To Reorder" value={kpis.reorder} color="bg-red-600" />
+        <KPICard label="Overstock" value={kpis.overstock} color="bg-amber-500" />
+        <KPICard label="OK" value={kpis.ok} color="bg-green-600" />
+        <KPICard label="No Usage" value={kpis.noUsage} color="bg-slate-400" />
+        <KPICard label="Total 12M Usage" value={fmt(kpis.total)} color="brand" />
+      </div>
+
+      <Section title={`Reorder Now (${reorderRows.length})`}>
+        <Table>
+          <thead className="bg-slate-50">
+            <tr>
+              <Th>Item</Th><Th>On Hand</Th><Th>12M Usage</Th><Th>Avg/Mo</Th>
+              <Th>MOS</Th><Th>Target MOS</Th><Th>Suggested Qty</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {reorderRows.map(m => (
+              <tr key={m.item.id} className="border-t">
+                <Td className="font-medium">{m.item.name}</Td>
+                <Td>{fmt(m.onHand)}</Td>
+                <Td>{fmt(m.usage12m)}</Td>
+                <Td>{fmt(m.avgMonthly, 1)}</Td>
+                <Td><span className={`px-2 py-0.5 text-xs font-semibold rounded ${mosColor(m.mos, m.item.target_mos)}`}>{fmt(m.mos, 1)}</span></Td>
+                <Td>{m.item.target_mos}</Td>
+                <Td className="font-bold brand-text">{fmt(m.suggested)}</Td>
+              </tr>
+            ))}
+            {reorderRows.length === 0 && (
+              <tr><td colSpan="7" className="text-center py-6 text-slate-500">Nothing to reorder</td></tr>
+            )}
+          </tbody>
+        </Table>
+      </Section>
+
+      <Section title="All Items Status">
+        <Table>
+          <thead className="bg-slate-50">
+            <tr>
+              <Th>Item</Th><Th>On Hand</Th><Th>12M Usage</Th><Th>Avg/Mo</Th>
+              <Th>MOS</Th><Th>Target</Th><Th>Status</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {allRows.map(m => (
+              <tr key={m.item.id} className="border-t">
+                <Td className="font-medium">{m.item.name}</Td>
+                <Td>{fmt(m.onHand)}</Td>
+                <Td>{fmt(m.usage12m)}</Td>
+                <Td>{fmt(m.avgMonthly, 1)}</Td>
+                <Td><span className={`px-2 py-0.5 text-xs font-semibold rounded ${mosColor(m.mos, m.item.target_mos)}`}>{fmt(m.mos, 1)}</span></Td>
+                <Td>{m.item.target_mos}</Td>
+                <Td><StatusBadge status={m.status} /></Td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </Section>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Enter Transaction
+// ─────────────────────────────────────────────────────────────
+function TransactionPage({ items, onSaved }) {
+  const [date, setDate] = useState(iso(new Date()));
+  const [po, setPo] = useState('');
+  const [itemId, setItemId] = useState('');
+  const [qty, setQty] = useState('');
+  const [sign, setSign] = useState('+');
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const activeItems = items.filter(i => i.active).sort((a, b) => a.name.localeCompare(b.name));
+
+  async function submit(e) {
+    e.preventDefault();
+    setMsg(null);
+    if (!itemId) { setMsg({ err: 'Select an item' }); return; }
+    const n = parseInt(qty);
+    if (isNaN(n) || n <= 0) { setMsg({ err: 'Quantity must be a positive whole number' }); return; }
+    if (!date) { setMsg({ err: 'Date required' }); return; }
+    const q = sign === '-' ? -n : n;
+    setSaving(true);
+    const { error } = await sb.from('transactions').insert({
+      date, po_number: po.trim() || null, item_id: itemId, quantity: q,
+    });
+    setSaving(false);
+    if (error) { setMsg({ err: error.message }); return; }
+    setMsg({ ok: `Saved: ${q > 0 ? '+' : ''}${q}` });
+    setQty(''); setPo('');
+    onSaved();
+  }
+
+  return (
+    <div className="max-w-xl">
+      <h2 className="text-2xl font-bold brand-text mb-4">Enter Transaction</h2>
+      <form onSubmit={submit} className="bg-white rounded-lg shadow p-6 space-y-4">
+        <Field label="Date">
+          <input type="date" required value={date} onChange={e => setDate(e.target.value)} className="w-full border rounded px-3 py-2" />
+        </Field>
+        <Field label="PO #">
+          <input type="text" value={po} onChange={e => setPo(e.target.value)} placeholder="Optional" className="w-full border rounded px-3 py-2" />
+        </Field>
+        <Field label="Item">
+          <select required value={itemId} onChange={e => setItemId(e.target.value)} className="w-full border rounded px-3 py-2 bg-white">
+            <option value="">Select item…</option>
+            {activeItems.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Quantity">
+          <div className="flex gap-2">
+            <div className="flex rounded border overflow-hidden">
+              <button type="button" onClick={() => setSign('+')}
+                className={`px-4 py-2 text-sm font-medium ${sign === '+' ? 'bg-green-600 text-white' : 'bg-white text-slate-700'}`}>
+                + Receipt
+              </button>
+              <button type="button" onClick={() => setSign('-')}
+                className={`px-4 py-2 text-sm font-medium ${sign === '-' ? 'bg-red-600 text-white' : 'bg-white text-slate-700'}`}>
+                − Usage
+              </button>
+            </div>
+            <input type="number" min="1" step="1" required value={qty} onChange={e => setQty(e.target.value)}
+              className="flex-1 border rounded px-3 py-2" placeholder="e.g. 25" />
+          </div>
+        </Field>
+        <div className="flex items-center gap-3">
+          <button type="submit" disabled={saving} className="brand text-white px-5 py-2 rounded font-medium disabled:opacity-50">
+            {saving ? 'Saving…' : 'Save Transaction'}
+          </button>
+          {msg?.ok  && <span className="text-green-700 text-sm">✓ {msg.ok}</span>}
+          {msg?.err && <span className="text-red-600 text-sm">{msg.err}</span>}
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Items
+// ─────────────────────────────────────────────────────────────
+function ItemsPage({ items, onChange }) {
+  const [form, setForm] = useState({ name: '', case_pack: 1, lead_time_days: 30, target_mos: 3 });
+  const [adding, setAdding] = useState(false);
+  const [addErr, setAddErr] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
+  const [edits, setEdits] = useState({});
+
+  async function add(e) {
+    e.preventDefault();
+    setAddErr('');
+    if (!form.name.trim()) { setAddErr('Name required'); return; }
+    setAdding(true);
+    const { error } = await sb.from('items').insert({
+      name: form.name.trim(),
+      case_pack: parseInt(form.case_pack) || 1,
+      lead_time_days: parseInt(form.lead_time_days) || 30,
+      target_mos: parseInt(form.target_mos) || 3,
+      active: true,
+    });
+    setAdding(false);
+    if (error) { setAddErr(error.message); return; }
+    setForm({ name: '', case_pack: 1, lead_time_days: 30, target_mos: 3 });
+    onChange();
+  }
+
+  async function saveRow(id) {
+    const e = edits[id];
+    if (!e) return;
+    const patch = {};
+    if ('case_pack' in e)      patch.case_pack      = parseInt(e.case_pack)      || 1;
+    if ('lead_time_days' in e) patch.lead_time_days = parseInt(e.lead_time_days) || 0;
+    if ('target_mos' in e)     patch.target_mos     = parseInt(e.target_mos)     || 0;
+    const { error } = await sb.from('items').update(patch).eq('id', id);
+    if (error) { alert(error.message); return; }
+    setEdits(prev => { const n = { ...prev }; delete n[id]; return n; });
+    onChange();
+  }
+
+  async function toggleArchive(it) {
+    const { error } = await sb.from('items').update({ active: !it.active }).eq('id', it.id);
+    if (error) { alert(error.message); return; }
+    onChange();
+  }
+
+  const rows = [...items]
+    .filter(i => showArchived || i.active)
+    .sort((a, b) => (a.active === b.active ? a.name.localeCompare(b.name) : (a.active ? -1 : 1)));
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold brand-text">Items</h2>
+
+      <Section title="Add New Item">
+        <form onSubmit={add} className="p-5 grid grid-cols-1 md:grid-cols-5 gap-3">
+          <Field label="Name">
+            <input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full border rounded px-3 py-2" />
+          </Field>
+          <Field label="Case Pack">
+            <input type="number" min="1" value={form.case_pack} onChange={e => setForm({ ...form, case_pack: e.target.value })} className="w-full border rounded px-3 py-2" />
+          </Field>
+          <Field label="Lead Time (days)">
+            <input type="number" min="0" value={form.lead_time_days} onChange={e => setForm({ ...form, lead_time_days: e.target.value })} className="w-full border rounded px-3 py-2" />
+          </Field>
+          <Field label="Target MOS">
+            <input type="number" min="0" value={form.target_mos} onChange={e => setForm({ ...form, target_mos: e.target.value })} className="w-full border rounded px-3 py-2" />
+          </Field>
+          <div className="flex items-end">
+            <button type="submit" disabled={adding} className="brand text-white px-4 py-2 rounded w-full disabled:opacity-50">
+              {adding ? 'Adding…' : 'Add Item'}
+            </button>
+          </div>
+          {addErr && <div className="md:col-span-5 text-red-600 text-sm">{addErr}</div>}
+        </form>
+      </Section>
+
+      <Section
+        title={`Items (${rows.length})`}
+        right={
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />
+            Show archived
+          </label>
+        }
+      >
+        <Table>
+          <thead className="bg-slate-50">
+            <tr>
+              <Th>Name</Th><Th>Case Pack</Th><Th>Lead Time (d)</Th><Th>Target MOS</Th><Th>Status</Th><Th className="text-right pr-5">Actions</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(it => {
+              const e = edits[it.id] || {};
+              const dirty = Object.keys(e).length > 0;
+              const setField = (k, v) => setEdits(prev => ({ ...prev, [it.id]: { ...(prev[it.id] || {}), [k]: v } }));
+              return (
+                <tr key={it.id} className={`border-t ${!it.active ? 'bg-slate-50 text-slate-400' : ''}`}>
+                  <Td className="font-medium">{it.name}</Td>
+                  <Td>
+                    <input type="number" min="1" value={e.case_pack ?? it.case_pack}
+                      onChange={ev => setField('case_pack', ev.target.value)}
+                      className="w-20 border rounded px-2 py-1" />
+                  </Td>
+                  <Td>
+                    <input type="number" min="0" value={e.lead_time_days ?? it.lead_time_days}
+                      onChange={ev => setField('lead_time_days', ev.target.value)}
+                      className="w-20 border rounded px-2 py-1" />
+                  </Td>
+                  <Td>
+                    <input type="number" min="0" value={e.target_mos ?? it.target_mos}
+                      onChange={ev => setField('target_mos', ev.target.value)}
+                      className="w-20 border rounded px-2 py-1" />
+                  </Td>
+                  <Td>{it.active ? <span className="text-green-700 text-xs font-semibold">ACTIVE</span> : <span className="text-slate-500 text-xs font-semibold">ARCHIVED</span>}</Td>
+                  <Td className="text-right pr-5 space-x-2">
+                    {dirty && (
+                      <button onClick={() => saveRow(it.id)} className="bg-green-600 text-white text-xs px-3 py-1 rounded">Save</button>
+                    )}
+                    <button onClick={() => toggleArchive(it)} className="bg-slate-600 text-white text-xs px-3 py-1 rounded">
+                      {it.active ? 'Archive' : 'Restore'}
+                    </button>
+                  </Td>
+                </tr>
+              );
+            })}
+            {rows.length === 0 && (
+              <tr><td colSpan="6" className="text-center py-6 text-slate-500">No items yet.</td></tr>
+            )}
+          </tbody>
+        </Table>
+      </Section>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// PO Guidance
+// ─────────────────────────────────────────────────────────────
+function POGuidance({ items, transactions }) {
+  const [filter, setFilter] = useState('all');
+  const metrics = useMemo(() => calcMetrics(items, transactions), [items, transactions]);
+  const active = metrics.filter(m => m.item.active);
+  let rows = active;
+  if (filter !== 'all') rows = active.filter(m => m.status === filter);
+  rows = [...rows].sort((a, b) => {
+    const order = { 'Reorder': 0, 'OK': 1, 'Overstock': 2, 'No Usage': 3 };
+    if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
+    return (a.mos ?? 9999) - (b.mos ?? 9999);
+  });
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-2xl font-bold brand-text">PO Guidance</h2>
+      <div className="flex gap-2 text-sm">
+        {[['all', 'All'], ['Reorder', 'Reorder'], ['OK', 'OK'], ['Overstock', 'Overstock'], ['No Usage', 'No Usage']].map(([k, lbl]) => (
+          <button key={k} onClick={() => setFilter(k)}
+            className={`px-3 py-1.5 rounded border ${filter === k ? 'brand text-white border-transparent' : 'bg-white hover:bg-slate-100'}`}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+      <Section title={`${rows.length} item${rows.length === 1 ? '' : 's'}`}>
+        <Table>
+          <thead className="bg-slate-50">
+            <tr>
+              <Th>Item</Th>
+              <Th>On Hand</Th>
+              <Th>12M Usage</Th>
+              <Th>Avg/Mo</Th>
+              <Th>MOS</Th>
+              <Th>Target MOS</Th>
+              <Th>Target Stock</Th>
+              <Th>Case Pack</Th>
+              <Th>Suggested Order</Th>
+              <Th>Status</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(m => (
+              <tr key={m.item.id} className="border-t">
+                <Td className="font-medium">{m.item.name}</Td>
+                <Td>{fmt(m.onHand)}</Td>
+                <Td>{fmt(m.usage12m)}</Td>
+                <Td>{fmt(m.avgMonthly, 1)}</Td>
+                <Td><span className={`px-2 py-0.5 text-xs font-semibold rounded ${mosColor(m.mos, m.item.target_mos)}`}>{fmt(m.mos, 1)}</span></Td>
+                <Td>{m.item.target_mos}</Td>
+                <Td>{fmt(m.targetStock, 0)}</Td>
+                <Td>{m.item.case_pack}</Td>
+                <Td className="font-bold brand-text">{fmt(m.suggested)}</Td>
+                <Td><StatusBadge status={m.status} /></Td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr><td colSpan="10" className="text-center py-6 text-slate-500">No items match this filter.</td></tr>
+            )}
+          </tbody>
+        </Table>
+      </Section>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Burn Rate
+// ─────────────────────────────────────────────────────────────
+function computeRange(preset, customStart, customEnd, year) {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  if (preset === '3m')  return [addDays(today, -90),  today];
+  if (preset === '6m')  return [addDays(today, -180), today];
+  if (preset === '12m') return [addDays(today, -365), today];
+  if (preset === 'ytd') return [parseDate(`${today.getUTCFullYear()}-01-01`), today];
+  if (preset === 'year' && year) return [parseDate(`${year}-01-01`), parseDate(`${year}-12-31`)];
+  if (preset === 'custom' && customStart && customEnd) return [parseDate(customStart), parseDate(customEnd)];
+  return [null, null];
+}
+
+function trendArrow(current, prior) {
+  if (current === 0 && prior === 0) return { arrow: '→', color: 'text-slate-400', label: 'stable' };
+  if (prior === 0) return { arrow: '↑', color: 'text-red-600', label: 'rising (new)' };
+  const d = (current - prior) / prior;
+  if (d > 0.15)  return { arrow: '↑', color: 'text-red-600',   label: `rising ${Math.round(d * 100)}%` };
+  if (d < -0.15) return { arrow: '↓', color: 'text-green-600', label: `falling ${Math.round(d * 100)}%` };
+  return { arrow: '→', color: 'text-slate-500', label: `stable ${Math.round(d * 100)}%` };
+}
+
+function BurnRate({ items, transactions }) {
+  const [preset, setPreset] = useState('12m');
+  const [year, setYear] = useState('');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+
+  const years = useMemo(() => {
+    const s = new Set();
+    for (const tx of transactions) if (tx.date) s.add(tx.date.slice(0, 4));
+    return [...s].sort();
+  }, [transactions]);
+
+  useEffect(() => {
+    if (preset === 'year' && !year && years.length) setYear(years[years.length - 1]);
+  }, [preset, year, years]);
+
+  const range = useMemo(() => {
+    if (preset === 'all') {
+      if (!transactions.length) return [null, null];
+      const dates = transactions.map(t => t.date).sort();
+      return [parseDate(dates[0]), parseDate(dates[dates.length - 1])];
+    }
+    return computeRange(preset, customStart, customEnd, year);
+  }, [preset, year, customStart, customEnd, transactions]);
+
+  const [start, end] = range;
+  const lenDays = start && end ? daysBetween(start, end) + 1 : 0;
+  const priorEnd   = start ? addDays(start, -1) : null;
+  const priorStart = priorEnd ? addDays(priorEnd, -(lenDays - 1)) : null;
+
+  const data = useMemo(() => {
+    if (!start || !end) return [];
+    const byItem = {};
+    for (const it of items) byItem[it.id] = { item: it, current: 0, prior: 0 };
+    const sISO = iso(start), eISO = iso(end);
+    const psISO = priorStart ? iso(priorStart) : null;
+    const peISO = priorEnd   ? iso(priorEnd)   : null;
+    for (const tx of transactions) {
+      if (tx.quantity >= 0) continue;
+      const r = byItem[tx.item_id];
+      if (!r) continue;
+      const u = -tx.quantity;
+      if (tx.date >= sISO && tx.date <= eISO) r.current += u;
+      else if (psISO && tx.date >= psISO && tx.date <= peISO) r.prior += u;
+    }
+    return Object.values(byItem)
+      .filter(r => r.current > 0 || r.prior > 0)
+      .sort((a, b) => b.current - a.current);
+  }, [items, transactions, start, end, priorStart, priorEnd]);
+
+  const chartData = data.slice(0, 8).map(r => ({
+    name: truncate(r.item.name, 14),
+    Current: r.current,
+    Prior: r.prior,
+  }));
+
+  return (
+    <div className="space-y-5">
+      <h2 className="text-2xl font-bold brand-text">Burn Rate</h2>
+
+      <div className="bg-white rounded-lg shadow p-4 flex flex-wrap items-end gap-3">
+        <Field label="Range">
+          <select value={preset} onChange={e => setPreset(e.target.value)} className="border rounded px-3 py-2 bg-white">
+            <option value="3m">Last 3 months</option>
+            <option value="6m">Last 6 months</option>
+            <option value="12m">Last 12 months</option>
+            <option value="ytd">Year to date</option>
+            <option value="year">Full year…</option>
+            <option value="all">All time</option>
+            <option value="custom">Custom…</option>
+          </select>
+        </Field>
+        {preset === 'year' && (
+          <Field label="Year">
+            <select value={year} onChange={e => setYear(e.target.value)} className="border rounded px-3 py-2 bg-white">
+              {years.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </Field>
+        )}
+        {preset === 'custom' && (
+          <>
+            <Field label="Start">
+              <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="border rounded px-3 py-2" />
+            </Field>
+            <Field label="End">
+              <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="border rounded px-3 py-2" />
+            </Field>
+          </>
+        )}
+        <div className="text-sm text-slate-600 ml-auto">
+          {start && end ? (
+            <>
+              Current: <b>{iso(start)}</b> → <b>{iso(end)}</b><br/>
+              Prior:&nbsp;&nbsp; <b>{priorStart ? iso(priorStart) : '—'}</b> → <b>{priorEnd ? iso(priorEnd) : '—'}</b>
+            </>
+          ) : <span>Select a range</span>}
+        </div>
+      </div>
+
+      <Section title="Top 8 items — current vs. prior period">
+        <div className="p-4" style={{ width: '100%', height: 360 }}>
+          {!R ? (
+            <div className="text-center text-slate-500 py-12">Chart library unavailable.</div>
+          ) : chartData.length > 0 ? (
+            <R.ResponsiveContainer width="100%" height="100%">
+              <R.BarChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 40 }}>
+                <R.CartesianGrid strokeDasharray="3 3" />
+                <R.XAxis dataKey="name" interval={0} angle={-30} textAnchor="end" height={60} />
+                <R.YAxis />
+                <R.Tooltip />
+                <R.Legend />
+                <R.Bar dataKey="Prior"   fill="#94A3B8" />
+                <R.Bar dataKey="Current" fill="#0D2137" />
+              </R.BarChart>
+            </R.ResponsiveContainer>
+          ) : (
+            <div className="text-center text-slate-500 py-12">No usage in this period.</div>
+          )}
+        </div>
+      </Section>
+
+      <Section title="Usage by item">
+        <Table>
+          <thead className="bg-slate-50">
+            <tr>
+              <Th>Item</Th><Th>Current Usage</Th><Th>Prior Usage</Th><Th>Change</Th><Th>Trend</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map(r => {
+              const t = trendArrow(r.current, r.prior);
+              const delta = r.current - r.prior;
+              return (
+                <tr key={r.item.id} className="border-t">
+                  <Td className="font-medium">{r.item.name}</Td>
+                  <Td>{fmt(r.current)}</Td>
+                  <Td>{fmt(r.prior)}</Td>
+                  <Td className={delta > 0 ? 'text-red-600' : delta < 0 ? 'text-green-600' : 'text-slate-500'}>
+                    {delta > 0 ? '+' : ''}{fmt(delta)}
+                  </Td>
+                  <Td><span className={`text-xl font-bold ${t.color}`} title={t.label}>{t.arrow}</span> <span className="text-xs text-slate-500">{t.label}</span></Td>
+                </tr>
+              );
+            })}
+            {data.length === 0 && (
+              <tr><td colSpan="5" className="text-center py-6 text-slate-500">No usage in range.</td></tr>
+            )}
+          </tbody>
+        </Table>
+      </Section>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Import
+// ─────────────────────────────────────────────────────────────
+function ImportPage({ transactions, items, onComplete }) {
+  const [itemsCsv, setItemsCsv] = useState(null);
+  const [txCsv, setTxCsv]       = useState(null);
+  const [status, setStatus]     = useState('');
+  const [running, setRunning]   = useState(false);
+  const [summary, setSummary]   = useState(null);
+  const [progress, setProgress] = useState(null);
+  const [confirmDup, setConfirmDup] = useState(false);
+
+  const hasExistingTx = transactions.length > 0;
+
+  async function tryRepoLoad() {
+    setStatus('Fetching CSVs from project directory…');
+    try {
+      const [r1, r2] = await Promise.all([
+        fetch('./import_items.csv'),
+        fetch('./import_transactions.csv'),
+      ]);
+      if (!r1.ok) throw new Error('import_items.csv not accessible at ./import_items.csv');
+      if (!r2.ok) throw new Error('import_transactions.csv not accessible at ./import_transactions.csv');
+      const [t1, t2] = await Promise.all([r1.text(), r2.text()]);
+      setItemsCsv({ text: t1, name: 'import_items.csv (from repo)' });
+      setTxCsv({ text: t2, name: 'import_transactions.csv (from repo)' });
+      setStatus('Loaded from repo. Click Run Import.');
+    } catch (e) {
+      setStatus('Could not fetch from repo: ' + e.message + '. Use file upload instead.');
+    }
+  }
+
+  function onFile(file, which) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const rec = { text: reader.result, name: file.name };
+      if (which === 'items') setItemsCsv(rec); else setTxCsv(rec);
+    };
+    reader.readAsText(file);
+  }
+
+  async function runImport() {
+    if (!itemsCsv || !txCsv) { setStatus('Select both CSV files first.'); return; }
+    if (hasExistingTx && !confirmDup) { setStatus('Existing transactions detected — check the confirm box to proceed.'); return; }
+
+    setRunning(true);
+    setSummary(null);
+    setProgress(null);
+    try {
+      // ── Items
+      setStatus('Parsing items CSV…');
+      const itemsParsed = window.Papa.parse(itemsCsv.text, { header: true, skipEmptyLines: true }).data;
+      const normItems = itemsParsed
+        .filter(r => r.name && r.name.trim())
+        .map(r => ({
+          name: r.name.trim(),
+          case_pack: parseInt(r.case_pack) || 1,
+          lead_time_days: parseInt(r.lead_time_days) || 30,
+          target_mos: parseInt(r.target_mos) || 3,
+          active: (r.active === 'True' || r.active === 'true' || r.active === true || r.active === '1'),
+        }));
+
+      setStatus('Checking existing items…');
+      const existing = await fetchAll('items');
+      const existingNames = new Set(existing.map(i => i.name));
+      const toInsert = normItems.filter(i => !existingNames.has(i.name));
+
+      if (toInsert.length > 0) {
+        setStatus(`Inserting ${toInsert.length} new item(s)…`);
+        const { error } = await sb.from('items').insert(toInsert);
+        if (error) throw new Error('Items insert failed: ' + error.message);
+      }
+
+      // Rebuild name → id
+      setStatus('Fetching item IDs…');
+      const allItems = await fetchAll('items');
+      const nameToId = Object.fromEntries(allItems.map(i => [i.name, i.id]));
+
+      // ── Transactions
+      setStatus('Parsing transactions CSV…');
+      const txParsed = window.Papa.parse(txCsv.text, { header: true, skipEmptyLines: true }).data;
+      const normTx = [];
+      const unmatched = new Map();
+      for (const r of txParsed) {
+        if (!r.item_name || !r.date) continue;
+        const id = nameToId[r.item_name.trim()];
+        if (!id) { unmatched.set(r.item_name, (unmatched.get(r.item_name) || 0) + 1); continue; }
+        const q = parseInt(r.quantity);
+        if (isNaN(q)) continue;
+        normTx.push({
+          date: r.date,
+          po_number: (r.po_number || '').trim() || null,
+          item_id: id,
+          quantity: q,
+        });
+      }
+
+      const BATCH = 500;
+      let inserted = 0;
+      for (let i = 0; i < normTx.length; i += BATCH) {
+        const batch = normTx.slice(i, i + BATCH);
+        setProgress({ done: i, total: normTx.length });
+        setStatus(`Inserting transactions ${i + 1}–${Math.min(i + batch.length, normTx.length)} of ${normTx.length}…`);
+        const { error } = await sb.from('transactions').insert(batch);
+        if (error) throw new Error('Transactions insert failed: ' + error.message);
+        inserted += batch.length;
+      }
+
+      setSummary({
+        itemsInserted: toInsert.length,
+        itemsSkipped: normItems.length - toInsert.length,
+        txParsed: txParsed.length,
+        txInserted: inserted,
+        unmatched: [...unmatched.entries()].map(([k, v]) => `${k} (${v} row${v === 1 ? '' : 's'})`),
+      });
+      setStatus('Import complete.');
+      setProgress(null);
+      onComplete();
+    } catch (e) {
+      setStatus('Error: ' + e.message);
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <h2 className="text-2xl font-bold brand-text">Import</h2>
+
+      <Section title="CSV Sources">
+        <div className="p-5 space-y-4">
+          <div>
+            <button onClick={tryRepoLoad} disabled={running} className="brand text-white px-4 py-2 rounded text-sm disabled:opacity-50">
+              Load from repo (./import_items.csv &amp; ./import_transactions.csv)
+            </button>
+            <p className="text-xs text-slate-500 mt-2">
+              Works after deploy to Netlify as long as both CSVs sit at the static site root.
+            </p>
+          </div>
+          <div className="border-t pt-4 grid md:grid-cols-2 gap-4">
+            <Field label="items CSV (name, case_pack, lead_time_days, target_mos, active)">
+              <input type="file" accept=".csv,text/csv" onChange={e => e.target.files[0] && onFile(e.target.files[0], 'items')} className="text-sm" />
+              {itemsCsv && <div className="text-xs text-green-700 mt-1">✓ {itemsCsv.name}</div>}
+            </Field>
+            <Field label="transactions CSV (date, po_number, item_name, quantity)">
+              <input type="file" accept=".csv,text/csv" onChange={e => e.target.files[0] && onFile(e.target.files[0], 'tx')} className="text-sm" />
+              {txCsv && <div className="text-xs text-green-700 mt-1">✓ {txCsv.name}</div>}
+            </Field>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="Run Import">
+        <div className="p-5 space-y-3">
+          {hasExistingTx && (
+            <div className="bg-amber-50 border border-amber-300 rounded p-3 text-sm text-amber-900">
+              ⚠ There are already {transactions.length} transaction(s) in the database — re-running will insert duplicates.
+              <label className="flex items-center gap-2 mt-2">
+                <input type="checkbox" checked={confirmDup} onChange={e => setConfirmDup(e.target.checked)} />
+                I understand — proceed anyway
+              </label>
+            </div>
+          )}
+          <button onClick={runImport} disabled={running || !itemsCsv || !txCsv}
+            className="bg-green-600 text-white px-5 py-2 rounded font-medium disabled:opacity-50">
+            {running ? 'Running…' : 'Run Import'}
+          </button>
+          {status && <div className="text-sm text-slate-700">{status}</div>}
+          {progress && (
+            <div className="w-full bg-slate-200 rounded h-2">
+              <div className="brand h-2 rounded" style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}></div>
+            </div>
+          )}
+          {summary && (
+            <div className="bg-slate-50 border rounded p-4 text-sm space-y-1">
+              <div><b>Items inserted:</b> {summary.itemsInserted}</div>
+              <div><b>Items skipped (already existed):</b> {summary.itemsSkipped}</div>
+              <div><b>Transactions parsed:</b> {summary.txParsed}</div>
+              <div><b>Transactions inserted:</b> {summary.txInserted}</div>
+              {summary.unmatched.length > 0 && (
+                <div>
+                  <b className="text-red-700">Unmatched item names ({summary.unmatched.length}):</b>
+                  <ul className="list-disc ml-6 text-red-700">
+                    {summary.unmatched.map(u => <li key={u}>{u}</li>)}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Export
+// ─────────────────────────────────────────────────────────────
+function ExportPage({ items, transactions }) {
+  const metrics = useMemo(() => calcMetrics(items, transactions), [items, transactions]);
+  function download() {
+    const XLSX = window.XLSX;
+    const wb = XLSX.utils.book_new();
+
+    const txRows = [...transactions]
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+      .map(t => {
+        const it = items.find(i => i.id === t.item_id);
+        return {
+          Date: t.date,
+          'PO#': t.po_number || '',
+          Item: it ? it.name : '(unknown)',
+          Quantity: t.quantity,
+        };
+      });
+    const s1 = XLSX.utils.json_to_sheet(txRows);
+    XLSX.utils.book_append_sheet(wb, s1, 'Transactions');
+
+    const poRows = metrics
+      .sort((a, b) => a.item.name.localeCompare(b.item.name))
+      .map(m => ({
+        Item: m.item.name,
+        Active: m.item.active ? 'Yes' : 'No',
+        'On Hand': m.onHand,
+        '12M Usage': m.usage12m,
+        'Avg/Mo': Number(m.avgMonthly.toFixed(2)),
+        MOS: m.mos === null ? '' : Number(m.mos.toFixed(2)),
+        'Target MOS': m.item.target_mos,
+        'Target Stock': Math.round(m.targetStock),
+        'Case Pack': m.item.case_pack,
+        'Lead Time (d)': m.item.lead_time_days,
+        'Suggested Order': m.suggested,
+        Status: m.status,
+      }));
+    const s2 = XLSX.utils.json_to_sheet(poRows);
+    XLSX.utils.book_append_sheet(wb, s2, 'PO Guidance');
+
+    XLSX.writeFile(wb, `scott-inventory-${iso(new Date())}.xlsx`);
+  }
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-2xl font-bold brand-text">Export</h2>
+      <div className="bg-white rounded-lg shadow p-6 max-w-xl">
+        <p className="mb-4 text-slate-700">
+          Download an Excel workbook with two sheets:
+        </p>
+        <ul className="list-disc ml-6 mb-5 text-slate-700 text-sm">
+          <li><b>Transactions</b> — every row, oldest first ({transactions.length} row{transactions.length === 1 ? '' : 's'}).</li>
+          <li><b>PO Guidance</b> — current snapshot with all calculated fields ({items.length} item{items.length === 1 ? '' : 's'}).</li>
+        </ul>
+        <button onClick={download} className="brand text-white px-5 py-2 rounded font-medium">Download .xlsx</button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Reports
+// ─────────────────────────────────────────────────────────────
+function ReportsPage({ items, transactions }) {
+  const [txStart, setTxStart] = useState('');
+  const [txEnd, setTxEnd] = useState(iso(new Date()));
+
+  const metrics = useMemo(() => calcMetrics(items, transactions), [items, transactions]);
+  const active = metrics.filter(m => m.item.active);
+
+  function writeWb(sheets, name) {
+    const XLSX = window.XLSX;
+    const wb = XLSX.utils.book_new();
+    for (const [sheetName, rows] of sheets) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), sheetName);
+    }
+    XLSX.writeFile(wb, `${name}-${iso(new Date())}.xlsx`);
+  }
+
+  function reorderReport() {
+    const rows = active
+      .filter(m => m.status === 'Reorder')
+      .sort((a, b) => (a.mos ?? 0) - (b.mos ?? 0))
+      .map(m => ({
+        Item: m.item.name,
+        'On Hand': m.onHand,
+        'Avg/Mo': Number(m.avgMonthly.toFixed(2)),
+        MOS: m.mos === null ? '' : Number(m.mos.toFixed(2)),
+        'Target MOS': m.item.target_mos,
+        'Case Pack': m.item.case_pack,
+        'Lead Time (d)': m.item.lead_time_days,
+        'Suggested Order': m.suggested,
+      }));
+    writeWb([['Reorder', rows]], 'reorder-report');
+  }
+
+  function inventorySnapshot() {
+    const rows = [...active]
+      .sort((a, b) => a.item.name.localeCompare(b.item.name))
+      .map(m => ({
+        Item: m.item.name,
+        'On Hand': m.onHand,
+        '12M Usage': m.usage12m,
+        'Avg/Mo': Number(m.avgMonthly.toFixed(2)),
+        MOS: m.mos === null ? '' : Number(m.mos.toFixed(2)),
+        'Target MOS': m.item.target_mos,
+        'Target Stock': Math.round(m.targetStock),
+        'Case Pack': m.item.case_pack,
+        'Suggested Order': m.suggested,
+        Status: m.status,
+      }));
+    writeWb([['Inventory', rows]], 'inventory-snapshot');
+  }
+
+  function transactionHistory() {
+    const filtered = transactions.filter(t => {
+      if (txStart && t.date < txStart) return false;
+      if (txEnd && t.date > txEnd) return false;
+      return true;
+    });
+    const rows = filtered
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(t => {
+        const it = items.find(i => i.id === t.item_id);
+        return {
+          Date: t.date,
+          'PO#': t.po_number || '',
+          Item: it ? it.name : '(unknown)',
+          Quantity: t.quantity,
+          Type: t.quantity < 0 ? 'Usage' : 'Receipt',
+        };
+      });
+    writeWb([['Transactions', rows]], `transactions-${txStart || 'start'}-to-${txEnd || iso(new Date())}`);
+  }
+
+  function monthlyUsage() {
+    const today = new Date();
+    const months = [];
+    for (let i = 23; i >= 0; i--) {
+      const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - i, 1));
+      months.push(d.toISOString().slice(0, 7));
+    }
+    const first = months[0] + '-01';
+    const byItem = {};
+    for (const it of items) if (it.active) byItem[it.id] = { item: it, months: Object.fromEntries(months.map(m => [m, 0])) };
+    for (const tx of transactions) {
+      if (tx.quantity >= 0 || tx.date < first) continue;
+      const r = byItem[tx.item_id]; if (!r) continue;
+      const m = tx.date.slice(0, 7);
+      if (m in r.months) r.months[m] += -tx.quantity;
+    }
+    const rows = Object.values(byItem)
+      .sort((a, b) => a.item.name.localeCompare(b.item.name))
+      .map(r => {
+        const obj = { Item: r.item.name };
+        let total = 0;
+        for (const m of months) { obj[m] = r.months[m]; total += r.months[m]; }
+        obj.Total = total;
+        return obj;
+      });
+    writeWb([['Monthly Usage', rows]], 'monthly-usage');
+  }
+
+  function usageSummary() {
+    const today = new Date();
+    const c = {
+      m1:  iso(addDays(today, -30)),
+      m3:  iso(addDays(today, -90)),
+      m6:  iso(addDays(today, -180)),
+      m12: iso(addDays(today, -365)),
+    };
+    const byItem = {};
+    for (const it of items) if (it.active) byItem[it.id] = { item: it, m1: 0, m3: 0, m6: 0, m12: 0 };
+    for (const tx of transactions) {
+      if (tx.quantity >= 0) continue;
+      const r = byItem[tx.item_id]; if (!r) continue;
+      const u = -tx.quantity;
+      if (tx.date >= c.m1)  r.m1  += u;
+      if (tx.date >= c.m3)  r.m3  += u;
+      if (tx.date >= c.m6)  r.m6  += u;
+      if (tx.date >= c.m12) r.m12 += u;
+    }
+    const rows = Object.values(byItem)
+      .sort((a, b) => a.item.name.localeCompare(b.item.name))
+      .map(r => ({
+        Item: r.item.name,
+        'Last 1M':  r.m1,
+        'Last 3M':  r.m3,
+        'Last 6M':  r.m6,
+        'Last 12M': r.m12,
+        'Avg/Mo (12M)': Number((r.m12 / 12).toFixed(2)),
+      }));
+    writeWb([['Usage Summary', rows]], 'usage-summary');
+  }
+
+  function stockoutRisk() {
+    const rows = active
+      .filter(m => m.avgMonthly > 0)
+      .map(m => {
+        const dailyUse = m.avgMonthly / 30;
+        const daysLeft = dailyUse > 0 ? m.onHand / dailyUse : null;
+        const deficitDays = daysLeft !== null ? daysLeft - m.item.lead_time_days : null;
+        return {
+          Item: m.item.name,
+          'On Hand': m.onHand,
+          'Avg/Mo': Number(m.avgMonthly.toFixed(2)),
+          'Lead Time (d)': m.item.lead_time_days,
+          'Days of Supply': daysLeft === null ? '' : Math.round(daysLeft),
+          'Days vs Lead Time': deficitDays === null ? '' : Math.round(deficitDays),
+          'At Risk': deficitDays !== null && deficitDays < 0 ? 'YES' : '',
+        };
+      })
+      .sort((a, b) => {
+        const av = typeof a['Days vs Lead Time'] === 'number' ? a['Days vs Lead Time'] : 9e9;
+        const bv = typeof b['Days vs Lead Time'] === 'number' ? b['Days vs Lead Time'] : 9e9;
+        return av - bv;
+      });
+    writeWb([['Stockout Risk', rows]], 'stockout-risk');
+  }
+
+  const cards = [
+    {
+      title: 'Reorder Report',
+      desc: `Items currently flagged for reorder (${active.filter(m => m.status === 'Reorder').length}). Suggested order quantities rounded up to case pack.`,
+      action: reorderReport,
+    },
+    {
+      title: 'Inventory Snapshot',
+      desc: `All active items with on-hand, MOS, target stock, and status (${active.length}).`,
+      action: inventorySnapshot,
+    },
+    {
+      title: 'Transaction History',
+      desc: 'All transactions in a date range, classified as Usage or Receipt.',
+      action: transactionHistory,
+      customControls: true,
+    },
+    {
+      title: 'Monthly Usage',
+      desc: 'Item × month usage matrix for the last 24 months with row totals.',
+      action: monthlyUsage,
+    },
+    {
+      title: 'Usage Summary',
+      desc: 'Usage totals per item over 1, 3, 6, and 12-month windows.',
+      action: usageSummary,
+    },
+    {
+      title: 'Stockout Risk',
+      desc: 'Items whose days-of-supply is less than their lead time — flagged "YES" in the At Risk column.',
+      action: stockoutRisk,
+    },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <h2 className="text-2xl font-bold brand-text">Reports</h2>
+      <p className="text-sm text-slate-600">
+        Each report downloads as an Excel file (.xlsx). All calculations use today's data.
+      </p>
+      <div className="grid md:grid-cols-2 gap-4">
+        {cards.map(c => (
+          <div key={c.title} className="bg-white rounded-lg shadow p-5 flex flex-col">
+            <h3 className="font-semibold brand-text text-lg mb-1">{c.title}</h3>
+            <p className="text-sm text-slate-600 mb-4">{c.desc}</p>
+            {c.customControls && (
+              <div className="flex gap-3 mb-4">
+                <Field label="From">
+                  <input type="date" value={txStart} onChange={e => setTxStart(e.target.value)} className="border rounded px-2 py-1 text-sm" />
+                </Field>
+                <Field label="To">
+                  <input type="date" value={txEnd} onChange={e => setTxEnd(e.target.value)} className="border rounded px-2 py-1 text-sm" />
+                </Field>
+              </div>
+            )}
+            <button onClick={c.action} className="mt-auto brand text-white px-4 py-2 rounded text-sm font-medium self-start">
+              Download .xlsx
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Main app shell
+// ─────────────────────────────────────────────────────────────
+function MainApp({ session, signOut }) {
+  const [page, setPage]                 = useState('dashboard');
+  const [items, setItems]               = useState([]);
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const [err, setErr]                   = useState('');
+
+  const refresh = useCallback(async () => {
+    setErr('');
+    try {
+      const [i, t] = await Promise.all([fetchAll('items', 'name'), fetchAll('transactions', 'date')]);
+      setItems(i);
+      setTransactions(t);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const pages = [
+    ['dashboard',   'Dashboard'],
+    ['transaction', 'Enter Transaction'],
+    ['items',       'Items'],
+    ['po',          'PO Guidance'],
+    ['burn',        'Burn Rate'],
+    ['reports',     'Reports'],
+    ['import',      'Import'],
+    ['export',      'Export'],
+  ];
+
+  return (
+    <div className="min-h-screen bg-slate-100">
+      <nav className="brand text-white shadow">
+        <div className="max-w-7xl mx-auto px-6 py-3 flex flex-wrap items-center gap-4">
+          <h1 className="text-lg font-bold">Scott Inventory</h1>
+          <div className="flex flex-wrap gap-1">
+            {pages.map(([id, label]) => (
+              <button key={id} onClick={() => setPage(id)}
+                className={`px-3 py-1.5 rounded text-sm ${page === id ? 'bg-white brand-text font-semibold' : 'hover:bg-white/10'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="ml-auto flex items-center gap-3 text-sm">
+            <span className="opacity-75 hidden sm:inline">{session.user.email}</span>
+            <button onClick={signOut} className="bg-white/10 hover:bg-white/20 px-3 py-1 rounded">Sign Out</button>
+          </div>
+        </div>
+      </nav>
+      <main className="max-w-7xl mx-auto p-6">
+        {err && <div className="bg-red-100 text-red-800 p-3 rounded mb-4">{err}</div>}
+        {loading ? (
+          <div className="text-slate-500">Loading…</div>
+        ) : (
+          <>
+            {page === 'dashboard'   && <Dashboard    items={items} transactions={transactions} />}
+            {page === 'transaction' && <TransactionPage items={items} onSaved={refresh} />}
+            {page === 'items'       && <ItemsPage    items={items} onChange={refresh} />}
+            {page === 'po'          && <POGuidance   items={items} transactions={transactions} />}
+            {page === 'burn'        && <BurnRate     items={items} transactions={transactions} />}
+            {page === 'reports'     && <ReportsPage  items={items} transactions={transactions} />}
+            {page === 'import'      && <ImportPage   items={items} transactions={transactions} onComplete={refresh} />}
+            {page === 'export'      && <ExportPage   items={items} transactions={transactions} />}
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Root
+// ─────────────────────────────────────────────────────────────
+function App() {
+  const [session, setSession]   = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [tablesOk, setTablesOk] = useState(null);
+  const [checking, setChecking] = useState(false);
+
+  useEffect(() => {
+    sb.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthReady(true);
+    });
+    const { data } = sb.auth.onAuthStateChange((_e, s) => setSession(s));
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  const checkTables = useCallback(async () => {
+    setChecking(true);
+    const r1 = await sb.from('items').select('id').limit(1);
+    const r2 = await sb.from('transactions').select('id').limit(1);
+    const missing = (e) => e && (
+      e.code === '42P01' ||
+      e.code === 'PGRST205' ||
+      /relation .* does not exist/i.test(e.message || '') ||
+      /schema cache/i.test(e.message || '')
+    );
+    setTablesOk(!(missing(r1.error) || missing(r2.error)));
+    setChecking(false);
+  }, []);
+
+  useEffect(() => { if (session) checkTables(); }, [session, checkTables]);
+
+  if (!authReady) return <div className="min-h-screen flex items-center justify-center text-slate-500">Loading…</div>;
+  if (!session)   return <LoginScreen />;
+  if (tablesOk === null || checking) return <div className="min-h-screen flex items-center justify-center text-slate-500">Checking database…</div>;
+  if (tablesOk === false) return <SetupScreen onRetry={checkTables} />;
+  return <MainApp session={session} signOut={() => sb.auth.signOut()} />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
