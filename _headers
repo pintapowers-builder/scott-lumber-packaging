@@ -1,0 +1,12 @@
+/images/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/inventory/import_items.csv
+  X-Robots-Tag: noindex, nofollow
+
+/inventory/import_transactions.csv
+  X-Robots-Tag: noindex, nofollow
+
+/inventory/*
+  X-Robots-Tag: noindex, nofollow
+  Referrer-Policy: no-referrer

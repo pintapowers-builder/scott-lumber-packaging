@@ -528,7 +528,7 @@ function TransactionsHistory({ items, transactions, session, onChange }) {
         <Table>
           <thead className="bg-slate-50">
             <tr>
-              <Th>Date</Th><Th>PO#</Th><Th>Item</Th><Th>Qty</Th><Th>Type</Th><Th>Entered By</Th><Th className="text-right pr-5">Actions</Th>
+              <Th>Date</Th><Th>PO#</Th><Th>Item</Th><Th>Qty</Th><Th>Type</Th><Th>Entered By</Th><Th>Entered At</Th><Th className="text-right pr-5">Actions</Th>
             </tr>
           </thead>
           <tbody>
@@ -545,6 +545,7 @@ function TransactionsHistory({ items, transactions, session, onChange }) {
                   <Td className={t.quantity < 0 ? 'text-red-600' : 'text-green-700'}>{t.quantity > 0 ? '+' : ''}{t.quantity}</Td>
                   <Td className="text-xs">{t.quantity < 0 ? 'Usage' : 'Receipt'}</Td>
                   <Td className="text-xs text-slate-500">{t.user_email || ''}</Td>
+                  <Td className="text-xs text-slate-500">{t.created_at ? new Date(t.created_at).toLocaleString() : ''}</Td>
                   <Td className="text-right pr-5 space-x-2">
                     <button onClick={() => setEditing({ ...t })} className="bg-slate-600 text-white text-xs px-3 py-1 rounded">Edit</button>
                     <button onClick={() => deleteTx(t.id)} className="bg-red-600 text-white text-xs px-3 py-1 rounded">Delete</button>
@@ -553,7 +554,7 @@ function TransactionsHistory({ items, transactions, session, onChange }) {
               );
             })}
             {shown.length === 0 && (
-              <tr><td colSpan="7" className="text-center py-6 text-slate-500">No transactions match.</td></tr>
+              <tr><td colSpan="8" className="text-center py-6 text-slate-500">No transactions match.</td></tr>
             )}
           </tbody>
         </Table>
@@ -1025,7 +1026,6 @@ function ImportPage({ transactions, items, onComplete }) {
   const [running, setRunning]   = useState(false);
   const [summary, setSummary]   = useState(null);
   const [progress, setProgress] = useState(null);
-  const [confirmDup, setConfirmDup] = useState(false);
 
   const hasExistingTx = transactions.length > 0;
 
@@ -1058,7 +1058,6 @@ function ImportPage({ transactions, items, onComplete }) {
 
   async function runImport() {
     if (!itemsCsv || !txCsv) { setStatus('Select both CSV files first.'); return; }
-    if (hasExistingTx && !confirmDup) { setStatus('Existing transactions detected — check the confirm box to proceed.'); return; }
 
     setRunning(true);
     setSummary(null);
@@ -1123,12 +1122,20 @@ function ImportPage({ transactions, items, onComplete }) {
         });
       }
 
+      // Dedup against existing transactions using a (date|item_id|qty|po) key
+      setStatus('Checking for duplicates…');
+      const keyOf = t => `${t.date}|${t.item_id}|${t.quantity}|${t.po_number || ''}`;
+      const existingKeys = new Set(transactions.map(keyOf));
+      const beforeDedup = normTx.length;
+      const toInsertTx = normTx.filter(t => !existingKeys.has(keyOf(t)));
+      const skippedDup = beforeDedup - toInsertTx.length;
+
       const BATCH = 500;
       let inserted = 0;
-      for (let i = 0; i < normTx.length; i += BATCH) {
-        const batch = normTx.slice(i, i + BATCH);
-        setProgress({ done: i, total: normTx.length });
-        setStatus(`Inserting transactions ${i + 1}–${Math.min(i + batch.length, normTx.length)} of ${normTx.length}…`);
+      for (let i = 0; i < toInsertTx.length; i += BATCH) {
+        const batch = toInsertTx.slice(i, i + BATCH);
+        setProgress({ done: i, total: toInsertTx.length });
+        setStatus(`Inserting transactions ${i + 1}–${Math.min(i + batch.length, toInsertTx.length)} of ${toInsertTx.length}…`);
         const { error } = await sb.from('transactions').insert(batch);
         if (error) throw new Error('Transactions insert failed: ' + error.message);
         inserted += batch.length;
@@ -1139,6 +1146,7 @@ function ImportPage({ transactions, items, onComplete }) {
         itemsSkipped: normItems.length - toInsert.length,
         txParsed: txParsed.length,
         txInserted: inserted,
+        txSkippedDup: skippedDup,
         unmatched: [...unmatched.entries()].map(([k, v]) => `${k} (${v} row${v === 1 ? '' : 's'})`),
       });
       setStatus('Import complete.');
@@ -1182,12 +1190,8 @@ function ImportPage({ transactions, items, onComplete }) {
       <Section title="Run Import">
         <div className="p-5 space-y-3">
           {hasExistingTx && (
-            <div className="bg-amber-50 border border-amber-300 rounded p-3 text-sm text-amber-900">
-              ⚠ There are already {transactions.length} transaction(s) in the database — re-running will insert duplicates.
-              <label className="flex items-center gap-2 mt-2">
-                <input type="checkbox" checked={confirmDup} onChange={e => setConfirmDup(e.target.checked)} />
-                I understand — proceed anyway
-              </label>
+            <div className="bg-slate-50 border border-slate-300 rounded p-3 text-sm text-slate-700">
+              {transactions.length.toLocaleString()} transaction(s) already in the database. Re-running the import is safe — matching rows (same date, item, quantity, PO#) are automatically skipped.
             </div>
           )}
           <button onClick={runImport} disabled={running || !itemsCsv || !txCsv}
@@ -1206,6 +1210,7 @@ function ImportPage({ transactions, items, onComplete }) {
               <div><b>Items skipped (already existed):</b> {summary.itemsSkipped}</div>
               <div><b>Transactions parsed:</b> {summary.txParsed}</div>
               <div><b>Transactions inserted:</b> {summary.txInserted}</div>
+              <div><b>Transactions skipped (duplicate of existing):</b> {summary.txSkippedDup ?? 0}</div>
               {summary.unmatched.length > 0 && (
                 <div>
                   <b className="text-red-700">Unmatched item names ({summary.unmatched.length}):</b>
