@@ -60,6 +60,28 @@ create table if not exists public.transactions (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.transaction_audits (
+  id uuid primary key default gen_random_uuid(),
+  transaction_id uuid,
+  action text not null,
+  before_data jsonb not null,
+  after_data jsonb,
+  changed_by text,
+  changed_at timestamptz not null default now()
+);
+
+create table if not exists public.form_submissions (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  name text,
+  company text,
+  email text,
+  phone text,
+  product text,
+  message text,
+  raw jsonb
+);
+
 -- Migrations for existing deployments
 alter table public.items        add column if not exists sku text;
 alter table public.transactions add column if not exists user_email text;
@@ -67,9 +89,13 @@ alter table public.transactions add column if not exists user_email text;
 create unique index if not exists idx_items_sku         on public.items(sku) where sku is not null;
 create        index if not exists idx_transactions_item on public.transactions(item_id);
 create        index if not exists idx_transactions_date on public.transactions(date);
+create        index if not exists idx_audits_changed_at on public.transaction_audits(changed_at desc);
+create        index if not exists idx_submissions_created_at on public.form_submissions(created_at desc);
 
-alter table public.items        enable row level security;
-alter table public.transactions enable row level security;
+alter table public.items              enable row level security;
+alter table public.transactions       enable row level security;
+alter table public.transaction_audits enable row level security;
+alter table public.form_submissions   enable row level security;
 
 do $$ begin
   if not exists (select 1 from pg_policies where tablename='items' and policyname='authed_all_items') then
@@ -79,6 +105,18 @@ do $$ begin
   if not exists (select 1 from pg_policies where tablename='transactions' and policyname='authed_all_transactions') then
     create policy authed_all_transactions on public.transactions
       for all to authenticated using (true) with check (true);
+  end if;
+  if not exists (select 1 from pg_policies where tablename='transaction_audits' and policyname='authed_all_audits') then
+    create policy authed_all_audits on public.transaction_audits
+      for all to authenticated using (true) with check (true);
+  end if;
+  if not exists (select 1 from pg_policies where tablename='form_submissions' and policyname='anon_insert_submissions') then
+    create policy anon_insert_submissions on public.form_submissions
+      for insert to anon with check (true);
+  end if;
+  if not exists (select 1 from pg_policies where tablename='form_submissions' and policyname='authed_read_submissions') then
+    create policy authed_read_submissions on public.form_submissions
+      for select to authenticated using (true);
   end if;
 end $$;
 `;
@@ -283,25 +321,53 @@ function SetupScreen({ onRetry }) {
 function Dashboard({ items, transactions }) {
   const metrics = useMemo(() => calcMetrics(items, transactions), [items, transactions]);
   const active = metrics.filter(m => m.item.active);
+  const atRiskRows = active.filter(m => m.daysLeft !== null && m.daysLeft < (m.item.lead_time_days || 0));
+  const thisMonth = iso(new Date()).slice(0, 7);
+  const txThisMonth = transactions.filter(t => t.date && t.date.slice(0, 7) === thisMonth).length;
   const kpis = {
     reorder:   active.filter(m => m.status === 'Reorder').length,
+    atRisk:    atRiskRows.length,
     overstock: active.filter(m => m.status === 'Overstock').length,
     ok:        active.filter(m => m.status === 'OK').length,
     noUsage:   active.filter(m => m.status === 'No Usage').length,
+    txMonth:   txThisMonth,
     total:     active.reduce((s, m) => s + m.usage12m, 0),
   };
   const reorderRows = active.filter(m => m.status === 'Reorder').sort((a, b) => (a.mos ?? 0) - (b.mos ?? 0));
   const allRows = [...active].sort((a, b) => a.item.name.localeCompare(b.item.name));
 
+  const itemMap = useMemo(() => Object.fromEntries(items.map(i => [i.id, i])), [items]);
+  const recentTx = useMemo(
+    () => [...transactions]
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.created_at || '').localeCompare(a.created_at || '')))
+      .slice(0, 10),
+    [transactions]
+  );
+  const topMovers = useMemo(() => {
+    const cutoff = iso(addDays(new Date(), -30));
+    const usage = {};
+    for (const t of transactions) {
+      if (t.quantity >= 0 || t.date < cutoff) continue;
+      usage[t.item_id] = (usage[t.item_id] || 0) + (-t.quantity);
+    }
+    return Object.entries(usage)
+      .map(([id, qty]) => ({ item: itemMap[id], qty }))
+      .filter(r => r.item)
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 10);
+  }, [transactions, itemMap]);
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold brand-text">Dashboard</h2>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
         <KPICard label="To Reorder" value={kpis.reorder} color="bg-red-600" />
+        <KPICard label="At Risk" value={kpis.atRisk} color="bg-orange-500" />
         <KPICard label="Overstock" value={kpis.overstock} color="bg-amber-500" />
         <KPICard label="OK" value={kpis.ok} color="bg-green-600" />
         <KPICard label="No Usage" value={kpis.noUsage} color="bg-slate-400" />
+        <KPICard label="Tx This Month" value={fmt(kpis.txMonth)} color="brand" />
         <KPICard label="Total 12M Usage" value={fmt(kpis.total)} color="brand" />
       </div>
 
@@ -333,6 +399,79 @@ function Dashboard({ items, transactions }) {
           </tbody>
         </Table>
       </Section>
+
+      <Section title={`At Risk — days of supply below lead time (${atRiskRows.length})`}>
+        <Table>
+          <thead className="bg-slate-50">
+            <tr>
+              <Th>SKU</Th><Th>Item</Th><Th>On Hand</Th><Th>Avg/Mo</Th>
+              <Th>Days Left</Th><Th>Lead (d)</Th><Th>Gap (d)</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...atRiskRows].sort((a, b) => (a.daysLeft - a.item.lead_time_days) - (b.daysLeft - b.item.lead_time_days)).map(m => (
+              <tr key={m.item.id} className="border-t">
+                <Td className="text-slate-500">{m.item.sku || ''}</Td>
+                <Td className="font-medium">{m.item.name}</Td>
+                <Td>{fmt(m.onHand)}</Td>
+                <Td>{fmt(m.avgMonthly, 1)}</Td>
+                <Td>{fmt(Math.round(m.daysLeft))}</Td>
+                <Td>{m.item.lead_time_days}</Td>
+                <Td className="text-red-600 font-semibold">{Math.round(m.daysLeft - m.item.lead_time_days)}</Td>
+              </tr>
+            ))}
+            {atRiskRows.length === 0 && (
+              <tr><td colSpan="7" className="text-center py-6 text-slate-500">No items at risk</td></tr>
+            )}
+          </tbody>
+        </Table>
+      </Section>
+
+      <div className="grid md:grid-cols-2 gap-6">
+        <Section title="Top Movers (last 30 days)">
+          <Table>
+            <thead className="bg-slate-50">
+              <tr><Th>SKU</Th><Th>Item</Th><Th className="text-right pr-5">Used</Th></tr>
+            </thead>
+            <tbody>
+              {topMovers.map(r => (
+                <tr key={r.item.id} className="border-t">
+                  <Td className="text-slate-500">{r.item.sku || ''}</Td>
+                  <Td className="font-medium">{r.item.name}</Td>
+                  <Td className="text-right pr-5">{fmt(r.qty)}</Td>
+                </tr>
+              ))}
+              {topMovers.length === 0 && (
+                <tr><td colSpan="3" className="text-center py-6 text-slate-500">No usage recorded in the last 30 days</td></tr>
+              )}
+            </tbody>
+          </Table>
+        </Section>
+
+        <Section title="Recent Activity">
+          <Table>
+            <thead className="bg-slate-50">
+              <tr><Th>Date</Th><Th>Item</Th><Th>Qty</Th><Th>By</Th></tr>
+            </thead>
+            <tbody>
+              {recentTx.map(t => {
+                const it = itemMap[t.item_id];
+                return (
+                  <tr key={t.id} className="border-t">
+                    <Td>{t.date}</Td>
+                    <Td className="font-medium">{it?.name || <span className="text-red-600">(deleted)</span>}</Td>
+                    <Td className={t.quantity < 0 ? 'text-red-600' : 'text-green-700'}>{t.quantity > 0 ? '+' : ''}{t.quantity}</Td>
+                    <Td className="text-xs text-slate-500">{t.user_email || ''}</Td>
+                  </tr>
+                );
+              })}
+              {recentTx.length === 0 && (
+                <tr><td colSpan="4" className="text-center py-6 text-slate-500">No transactions yet</td></tr>
+              )}
+            </tbody>
+          </Table>
+        </Section>
+      </div>
 
       <Section title="All Items Status">
         <Table>
@@ -479,6 +618,16 @@ function TransactionsHistory({ items, transactions, session, onChange }) {
 
   async function deleteTx(id) {
     if (!confirm('Delete this transaction? This cannot be undone.')) return;
+    const original = transactions.find(t => t.id === id);
+    if (original) {
+      await sb.from('transaction_audits').insert({
+        transaction_id: id,
+        action: 'delete',
+        before_data: original,
+        after_data: null,
+        changed_by: session?.user?.email || null,
+      });
+    }
     const { error } = await sb.from('transactions').delete().eq('id', id);
     if (error) { alert(error.message); return; }
     onChange();
@@ -489,12 +638,23 @@ function TransactionsHistory({ items, transactions, session, onChange }) {
     if (!e) return;
     const n = parseInt(e.quantity);
     if (isNaN(n) || n === 0) { alert('Quantity must be a non-zero integer'); return; }
-    const { error } = await sb.from('transactions').update({
+    const original = transactions.find(t => t.id === e.id);
+    const updated = {
       date: e.date,
       po_number: (e.po_number || '').trim() || null,
       item_id: e.item_id,
       quantity: n,
-    }).eq('id', e.id);
+    };
+    if (original) {
+      await sb.from('transaction_audits').insert({
+        transaction_id: e.id,
+        action: 'edit',
+        before_data: original,
+        after_data: { ...original, ...updated },
+        changed_by: session?.user?.email || null,
+      });
+    }
+    const { error } = await sb.from('transactions').update(updated).eq('id', e.id);
     if (error) { alert(error.message); return; }
     setEditing(null);
     onChange();
@@ -1525,6 +1685,221 @@ function ReportsPage({ items, transactions }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Audit Log
+// ─────────────────────────────────────────────────────────────
+function AuditLog({ items }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');
+  const [actionFilter, setActionFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const itemMap = useMemo(() => Object.fromEntries(items.map(i => [i.id, i])), [items]);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const { data, error } = await sb.from('transaction_audits')
+        .select('*')
+        .order('changed_at', { ascending: false })
+        .limit(500);
+      if (error) setErr(error.message);
+      else setRows(data || []);
+      setLoading(false);
+    })();
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter(r => {
+      if (actionFilter !== 'all' && r.action !== actionFilter) return false;
+      if (q) {
+        const it = itemMap[r.before_data?.item_id];
+        const hay = [it?.name, it?.sku, r.before_data?.po_number, r.changed_by].filter(Boolean).join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [rows, actionFilter, search, itemMap]);
+
+  function describeDiff(r) {
+    if (r.action === 'delete') return <span className="text-red-600 text-xs">Deleted</span>;
+    const b = r.before_data || {};
+    const a = r.after_data || {};
+    const changes = [];
+    for (const k of ['date', 'po_number', 'item_id', 'quantity']) {
+      if ((b[k] ?? '') !== (a[k] ?? '')) {
+        let before = b[k], after = a[k];
+        if (k === 'item_id') {
+          before = itemMap[before]?.name || before || '—';
+          after  = itemMap[after]?.name  || after  || '—';
+        }
+        changes.push(`${k}: ${before ?? '—'} → ${after ?? '—'}`);
+      }
+    }
+    return <span className="text-xs text-slate-700">{changes.join(', ') || '(no change)'}</span>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-2xl font-bold brand-text">Audit Log</h2>
+      <p className="text-sm text-slate-600">
+        Every edit and delete to transactions is recorded here. Shows the most recent 500 audit entries.
+      </p>
+
+      <div className="bg-white rounded-lg shadow p-4 flex flex-wrap items-end gap-3">
+        <Field label="Search">
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="item, SKU, PO#, user…" className="border rounded px-3 py-2 w-64" />
+        </Field>
+        <Field label="Action">
+          <select value={actionFilter} onChange={e => setActionFilter(e.target.value)} className="border rounded px-3 py-2 bg-white">
+            <option value="all">All</option>
+            <option value="edit">Edits</option>
+            <option value="delete">Deletes</option>
+          </select>
+        </Field>
+        <button onClick={() => { setSearch(''); setActionFilter('all'); }} className="text-sm text-slate-600 hover:underline ml-auto">Clear filters</button>
+      </div>
+
+      {err && <div className="bg-red-100 text-red-800 p-3 rounded">{err}</div>}
+
+      <Section title={`${filtered.length.toLocaleString()} audit entr${filtered.length === 1 ? 'y' : 'ies'}`}>
+        <Table>
+          <thead className="bg-slate-50">
+            <tr>
+              <Th>When</Th><Th>Action</Th><Th>By</Th><Th>Item</Th><Th>Qty</Th><Th>Date</Th><Th>PO#</Th><Th>Change</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && <tr><td colSpan="8" className="text-center py-6 text-slate-500">Loading…</td></tr>}
+            {!loading && filtered.map(r => {
+              const b = r.before_data || {};
+              const it = itemMap[b.item_id];
+              return (
+                <tr key={r.id} className="border-t">
+                  <Td className="text-xs text-slate-500">{new Date(r.changed_at).toLocaleString()}</Td>
+                  <Td><span className={`inline-block px-2 py-0.5 text-xs font-semibold rounded ${r.action === 'delete' ? 'bg-red-600 text-white' : 'bg-slate-600 text-white'}`}>{r.action}</span></Td>
+                  <Td className="text-xs text-slate-500">{r.changed_by || ''}</Td>
+                  <Td className="font-medium">
+                    {it?.sku && <span className="text-slate-500 mr-2">{it.sku}</span>}
+                    {it?.name || <span className="text-red-600">(unknown)</span>}
+                  </Td>
+                  <Td className={b.quantity < 0 ? 'text-red-600' : 'text-green-700'}>{b.quantity > 0 ? '+' : ''}{b.quantity}</Td>
+                  <Td>{b.date}</Td>
+                  <Td>{b.po_number || ''}</Td>
+                  <Td>{describeDiff(r)}</Td>
+                </tr>
+              );
+            })}
+            {!loading && filtered.length === 0 && (
+              <tr><td colSpan="8" className="text-center py-6 text-slate-500">No audit entries match.</td></tr>
+            )}
+          </tbody>
+        </Table>
+      </Section>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Quote Requests (form submission log)
+// ─────────────────────────────────────────────────────────────
+function QuoteRequests() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const { data, error } = await sb.from('form_submissions')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(500);
+      if (error) setErr(error.message);
+      else setRows(data || []);
+      setLoading(false);
+    })();
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(r => {
+      const hay = [r.name, r.company, r.email, r.phone, r.product, r.message].filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  }, [rows, search]);
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-2xl font-bold brand-text">Quote Requests</h2>
+      <p className="text-sm text-slate-600">
+        Submissions from the main site quote form. Backup log in case of email delivery issues — primary copy is still in Netlify.
+      </p>
+
+      <div className="bg-white rounded-lg shadow p-4 flex flex-wrap items-end gap-3">
+        <Field label="Search">
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="name, company, email, product…" className="border rounded px-3 py-2 w-72" />
+        </Field>
+        <button onClick={() => setSearch('')} className="text-sm text-slate-600 hover:underline ml-auto">Clear</button>
+      </div>
+
+      {err && <div className="bg-red-100 text-red-800 p-3 rounded">{err}</div>}
+
+      <Section title={`${filtered.length.toLocaleString()} request${filtered.length === 1 ? '' : 's'}`}>
+        <Table>
+          <thead className="bg-slate-50">
+            <tr>
+              <Th>Received</Th><Th>Name</Th><Th>Company</Th><Th>Email</Th><Th>Phone</Th><Th>Product</Th><Th>Message</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && <tr><td colSpan="7" className="text-center py-6 text-slate-500">Loading…</td></tr>}
+            {!loading && filtered.map(r => (
+              <tr key={r.id} className="border-t hover:bg-slate-50 cursor-pointer" onClick={() => setSelected(r)}>
+                <Td className="text-xs text-slate-500">{new Date(r.created_at).toLocaleString()}</Td>
+                <Td className="font-medium">{r.name || ''}</Td>
+                <Td>{r.company || ''}</Td>
+                <Td><a href={`mailto:${r.email}`} className="text-blue-700 hover:underline" onClick={e => e.stopPropagation()}>{r.email || ''}</a></Td>
+                <Td>{r.phone || ''}</Td>
+                <Td className="text-xs">{r.product || ''}</Td>
+                <Td className="text-xs text-slate-600">{r.message ? truncate(r.message, 60) : ''}</Td>
+              </tr>
+            ))}
+            {!loading && filtered.length === 0 && (
+              <tr><td colSpan="7" className="text-center py-6 text-slate-500">No quote requests yet.</td></tr>
+            )}
+          </tbody>
+        </Table>
+      </Section>
+
+      {selected && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSelected(null)}>
+          <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold brand-text mb-1">Quote Request</h3>
+            <div className="text-xs text-slate-500 mb-4">{new Date(selected.created_at).toLocaleString()}</div>
+            <dl className="grid grid-cols-3 gap-y-2 text-sm mb-4">
+              <dt className="font-semibold text-slate-600">Name</dt><dd className="col-span-2">{selected.name || '—'}</dd>
+              <dt className="font-semibold text-slate-600">Company</dt><dd className="col-span-2">{selected.company || '—'}</dd>
+              <dt className="font-semibold text-slate-600">Email</dt><dd className="col-span-2"><a href={`mailto:${selected.email}`} className="text-blue-700 hover:underline">{selected.email || '—'}</a></dd>
+              <dt className="font-semibold text-slate-600">Phone</dt><dd className="col-span-2">{selected.phone || '—'}</dd>
+              <dt className="font-semibold text-slate-600">Product</dt><dd className="col-span-2">{selected.product || '—'}</dd>
+            </dl>
+            <div className="text-sm font-semibold text-slate-600 mb-1">Message</div>
+            <div className="bg-slate-50 rounded p-3 text-sm whitespace-pre-wrap">{selected.message || '(no message)'}</div>
+            <div className="flex justify-end mt-5">
+              <button onClick={() => setSelected(null)} className="brand text-white px-4 py-2 rounded font-medium">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // Main app shell
 // ─────────────────────────────────────────────────────────────
 function MainApp({ session, signOut }) {
@@ -1557,6 +1932,8 @@ function MainApp({ session, signOut }) {
     ['po',          'PO Guidance'],
     ['burn',        'Burn Rate'],
     ['reports',     'Reports'],
+    ['leads',       'Quote Requests'],
+    ['audit',       'Audit Log'],
     ['import',      'Import'],
     ['export',      'Export'],
   ];
@@ -1593,6 +1970,8 @@ function MainApp({ session, signOut }) {
             {page === 'po'          && <POGuidance         items={items} transactions={transactions} />}
             {page === 'burn'        && <BurnRate           items={items} transactions={transactions} />}
             {page === 'reports'     && <ReportsPage        items={items} transactions={transactions} />}
+            {page === 'leads'       && <QuoteRequests />}
+            {page === 'audit'       && <AuditLog           items={items} />}
             {page === 'import'      && <ImportPage         items={items} transactions={transactions} onComplete={refresh} />}
             {page === 'export'      && <ExportPage         items={items} transactions={transactions} />}
           </>
@@ -1625,6 +2004,8 @@ function App() {
     const tableChecks = await Promise.all([
       sb.from('items').select('id').limit(1),
       sb.from('transactions').select('id').limit(1),
+      sb.from('transaction_audits').select('id').limit(1),
+      sb.from('form_submissions').select('id').limit(1),
     ]);
     const tableMissing = (e) => e && (
       e.code === '42P01' ||

@@ -622,6 +622,44 @@
     }
     nameInput.addEventListener('input',updateSubject);
     companyInput.addEventListener('input',updateSubject);
+
+    // Dual-submit quote to Supabase as a backup log alongside Netlify Forms.
+    // If Supabase fails, Netlify still captures the submission — no data loss.
+    const SUPA_URL='https://vrmwapdnkfadomduxlxq.supabase.co';
+    const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZybXdhcGRua2ZhZG9tZHV4bHhxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0NDA2NzYsImV4cCI6MjA5MjAxNjY3Nn0.FNzvm2mgK_jEOSwSiPcjQBVDFrEyh5V92Q--RiLNKGg';
+    const quoteForm=document.querySelector('form[name="quote"]');
+    if(quoteForm){
+      quoteForm.addEventListener('submit',async(e)=>{
+        e.preventDefault();
+        const fd=new FormData(quoteForm);
+        if(fd.get('bot-field')){quoteForm.submit();return;}
+        const payload={
+          name:(fd.get('name')||'').toString().trim()||null,
+          company:(fd.get('company')||'').toString().trim()||null,
+          email:(fd.get('email')||'').toString().trim()||null,
+          phone:(fd.get('phone')||'').toString().trim()||null,
+          product:(fd.get('product')||'').toString().trim()||null,
+          message:(fd.get('message')||'').toString().trim()||null,
+        };
+        try{
+          const ctrl=new AbortController();
+          const timer=setTimeout(()=>ctrl.abort(),3000);
+          await fetch(SUPA_URL+'/rest/v1/form_submissions',{
+            method:'POST',
+            headers:{
+              'apikey':SUPA_KEY,
+              'Authorization':'Bearer '+SUPA_KEY,
+              'Content-Type':'application/json',
+              'Prefer':'return=minimal',
+            },
+            body:JSON.stringify(payload),
+            signal:ctrl.signal,
+          });
+          clearTimeout(timer);
+        }catch(_){/* non-fatal — Netlify still captures the submission */}
+        quoteForm.submit();
+      });
+    }
   </script>
 </body>
 </html>
