@@ -6,14 +6,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow, noarchive">
 <meta name="referrer" content="no-referrer">
+<script>
+  // Apply saved theme before any rendering to avoid flash.
+  try {
+    const saved = localStorage.getItem('scott-theme');
+    if (saved === 'light') document.documentElement.classList.add('theme-light');
+  } catch (e) {}
+</script>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = {
     theme: {
       extend: {
         colors: {
-          ink:   { bg: '#2a3530', panel: '#36413b', panel2: '#2e3a34', line: '#475149', lineX: '#525e54' },
-          fog:   { DEFAULT: '#eef2ec', mute: '#8a9990', muteX: '#b8c2bc' },
+          ink:   { bg: 'var(--c-bg)', panel: 'var(--c-panel)', panel2: 'var(--c-panel2)', line: 'var(--c-line)', lineX: 'var(--c-linex)' },
+          fog:   { DEFAULT: 'var(--c-text)', mute: 'var(--c-mute)', muteX: 'var(--c-mutex)' },
           ok:    '#3fa85c',
           okdim: 'rgba(63,168,92,.14)',
           accent:'#d9f99d',
@@ -47,15 +54,38 @@
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <style>
   html, body { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
-  .brand      { background-color: #3fa85c; color: #2a3530; }
-  .brand-text { color: #eef2ec; }
-  /* dark form controls so existing inputs/selects don't render as white islands */
-  input[type="text"], input[type="date"], input[type="number"], input[type="email"], input[type="password"], input[type="search"], select, textarea {
-    background-color: #2e3a34;
-    color: #eef2ec;
-    border-color: #475149;
+
+  /* Default = dark theme */
+  :root {
+    --c-bg: #2a3530;
+    --c-panel: #36413b;
+    --c-panel2: #2e3a34;
+    --c-line: #475149;
+    --c-linex: #525e54;
+    --c-text: #eef2ec;
+    --c-mute: #8a9990;
+    --c-mutex: #b8c2bc;
   }
-  input::placeholder, textarea::placeholder { color: #8a9990; }
+  .theme-light {
+    --c-bg: #f4f7f5;
+    --c-panel: #ffffff;
+    --c-panel2: #f8faf9;
+    --c-line: #e2e8e4;
+    --c-linex: #cdd5d0;
+    --c-text: #0f1713;
+    --c-mute: #5d6b62;
+    --c-mutex: #3b4842;
+  }
+
+  .brand      { background-color: #3fa85c; color: #ffffff; }
+  .brand-text { color: var(--c-text); }
+  /* themed form controls so they pick up bg/text colors automatically */
+  input[type="text"], input[type="date"], input[type="number"], input[type="email"], input[type="password"], input[type="search"], select, textarea {
+    background-color: var(--c-panel2);
+    color: var(--c-text);
+    border-color: var(--c-line);
+  }
+  input::placeholder, textarea::placeholder { color: var(--c-mute); }
 </style>
 </head>
 <body class="bg-ink-bg text-fog">
@@ -449,7 +479,7 @@ function Dashboard({ items, transactions }) {
           </thead>
           <tbody>
             {reorderRows.map(m => (
-              <tr key={m.item.id} className="border-t border-ink-line hover:bg-okdim/30">
+              <tr key={m.item.id} className="border-t border-ink-line hover:bg-okdim">
                 <Td className="text-fog-mute font-mono text-[11px]">{m.item.sku || '—'}</Td>
                 <Td className="font-semibold">{m.item.name}</Td>
                 <Td>{fmt(m.onHand)}</Td>
@@ -813,7 +843,7 @@ function TransactionsHistory({ items, transactions, session, onChange }) {
             {shown.map(t => {
               const it = itemMap[t.item_id];
               return (
-                <tr key={t.id} className="border-t border-ink-line hover:bg-okdim/30">
+                <tr key={t.id} className="border-t border-ink-line hover:bg-okdim">
                   <Td className="text-fog-mute text-[11px] whitespace-nowrap">{t.date}</Td>
                   <Td className="font-mono text-[11px] text-fog-mute">{t.po_number || '—'}</Td>
                   <Td className="font-medium">
@@ -2122,6 +2152,15 @@ function MainApp({ session, signOut }) {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading]           = useState(true);
   const [err, setErr]                   = useState('');
+  const [theme, setTheme]               = useState(() => {
+    try { return localStorage.getItem('scott-theme') === 'light' ? 'light' : 'dark'; }
+    catch (e) { return 'dark'; }
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('theme-light', theme === 'light');
+    try { localStorage.setItem('scott-theme', theme); } catch (e) {}
+  }, [theme]);
 
   const refresh = useCallback(async () => {
     setErr('');
@@ -2169,6 +2208,12 @@ function MainApp({ session, signOut }) {
             ))}
           </div>
           <div className="ml-auto flex items-center gap-3 text-[12px]">
+            <button
+              onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+              title={theme === 'dark' ? 'Switch to light' : 'Switch to dark'}
+              className="text-fog-mute hover:text-fog px-2 py-1 rounded-md border border-ink-line hover:border-ink-lineX">
+              {theme === 'dark' ? '☀' : '☾'}
+            </button>
             <span className="text-fog-mute hidden sm:inline">{session.user.email}</span>
             <button onClick={signOut} className="text-fog-mute hover:text-fog px-3 py-1 rounded-md border border-ink-line hover:border-ink-lineX">Sign Out</button>
           </div>
