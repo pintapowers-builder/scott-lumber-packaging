@@ -7,6 +7,36 @@
 <meta name="robots" content="noindex, nofollow, noarchive">
 <meta name="referrer" content="no-referrer">
 <script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          ink:   { bg: '#0d1410', panel: '#131c17', panel2: '#0f1713', line: '#1f2a22', lineX: '#2a3a30' },
+          fog:   { DEFAULT: '#eef2ec', mute: '#8a9990', muteX: '#b8c2bc' },
+          ok:    '#3fa85c',
+          okdim: 'rgba(63,168,92,.14)',
+          accent:'#d9f99d',
+          danger:'#ef4444',
+          dangerdim: 'rgba(239,68,68,.14)',
+          warn:  '#f59e0b',
+          warndim: 'rgba(245,158,11,.14)',
+          orange:'#f97316',
+          info:  '#60a5fa',
+          infodim: 'rgba(96,165,250,.14)',
+        },
+        fontFamily: {
+          sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+          mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        },
+        borderRadius: { card: '14px' },
+      },
+    },
+  };
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
@@ -16,12 +46,19 @@
 <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <style>
-  html, body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  .brand { background-color: #0D2137; }
-  .brand-text { color: #0D2137; }
+  html, body { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  .brand      { background-color: #3fa85c; color: #0d1410; }
+  .brand-text { color: #eef2ec; }
+  /* dark form controls so existing inputs/selects don't render as white islands */
+  input[type="text"], input[type="date"], input[type="number"], input[type="email"], input[type="password"], input[type="search"], select, textarea {
+    background-color: #0f1713;
+    color: #eef2ec;
+    border-color: #1f2a22;
+  }
+  input::placeholder, textarea::placeholder { color: #8a9990; }
 </style>
 </head>
-<body class="bg-slate-100">
+<body class="bg-ink-bg text-fog">
 <div id="root"></div>
 
 <script type="text/babel" data-presets="react">
@@ -183,46 +220,51 @@ function calcMetrics(items, transactions, asOfDate = new Date()) {
 }
 
 function mosColor(mos, effectiveTarget) {
-  if (mos === null || mos === undefined || !isFinite(mos)) return 'bg-slate-200 text-slate-600';
+  if (mos === null || mos === undefined || !isFinite(mos)) return 'bg-ink-line text-fog-mute';
   const r = mos / (effectiveTarget || 1);
-  if (r < 0.4) return 'bg-red-600 text-white';
-  if (r < 0.8) return 'bg-red-400 text-white';
-  if (r < 1.0) return 'bg-orange-400 text-white';
-  if (r < 1.3) return 'bg-lime-400 text-slate-900';
-  if (r < 1.6) return 'bg-green-500 text-white';
-  return 'bg-amber-500 text-white';
+  if (r < 0.4) return 'bg-danger text-white';
+  if (r < 0.8) return 'bg-red-700 text-white';
+  if (r < 1.0) return 'bg-orange text-white';
+  if (r < 1.3) return 'bg-lime-500 text-ink-bg';
+  if (r < 1.6) return 'bg-ok text-white';
+  return 'bg-warn text-white';
 }
 
 function StatusBadge({ status }) {
   const map = {
-    'Reorder':   'bg-red-600 text-white',
-    'Overstock': 'bg-amber-500 text-white',
-    'OK':        'bg-green-600 text-white',
-    'No Usage':  'bg-slate-400 text-white',
+    'Reorder':   { bg: 'bg-dangerdim', fg: 'text-danger', dot: 'bg-danger' },
+    'Overstock': { bg: 'bg-warndim',   fg: 'text-warn',   dot: 'bg-warn' },
+    'OK':        { bg: 'bg-okdim',     fg: 'text-ok',     dot: 'bg-ok' },
+    'No Usage':  { bg: 'bg-ink-line',  fg: 'text-fog-mute', dot: 'bg-fog-mute' },
   };
-  return <span className={`inline-block px-2 py-0.5 text-xs font-semibold rounded ${map[status] || ''}`}>{status}</span>;
+  const c = map[status] || map['OK'];
+  return (
+    <span className={`inline-flex items-center gap-1.5 ${c.bg} ${c.fg} px-2.5 py-1 rounded-full text-[11px] font-semibold`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />{status}
+    </span>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────
 // Tiny layout components
 // ─────────────────────────────────────────────────────────────
-const Th = ({ children, className = '' }) => <th className={`text-left text-xs font-semibold text-slate-600 uppercase tracking-wide px-3 py-2 ${className}`}>{children}</th>;
-const Td = ({ children, className = '' }) => <td className={`px-3 py-2 text-sm ${className}`}>{children}</td>;
+const Th = ({ children, className = '' }) => <th className={`text-left text-[10px] font-medium text-fog-mute uppercase tracking-[.1em] px-3.5 py-2.5 border-b border-ink-line ${className}`}>{children}</th>;
+const Td = ({ children, className = '' }) => <td className={`px-3.5 py-2.5 text-[12px] text-fog ${className}`}>{children}</td>;
 const SortableTh = ({ k, sortKey, sortDir, onSort, children, className = '' }) => {
   const active = sortKey === k;
-  const arrow = active ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+  const arrow = active ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
   return (
     <th onClick={() => onSort(k)}
-        className={`text-left text-xs font-semibold uppercase tracking-wide px-3 py-2 cursor-pointer select-none hover:bg-slate-100 ${active ? 'text-slate-900' : 'text-slate-600'} ${className}`}>
+        className={`text-left text-[10px] font-medium uppercase tracking-[.1em] px-3.5 py-2.5 cursor-pointer select-none border-b border-ink-line hover:text-fog ${active ? 'text-fog' : 'text-fog-mute'} ${className}`}>
       {children}{arrow}
     </th>
   );
 };
 
 const Section = ({ title, children, right }) => (
-  <section className="bg-white rounded-lg shadow">
-    <header className="flex items-center justify-between px-5 py-3 border-b">
-      <h3 className="text-base font-semibold brand-text">{title}</h3>
+  <section className="bg-ink-panel border border-ink-line rounded-card overflow-hidden">
+    <header className="flex items-center justify-between px-5 py-4 border-b border-ink-line">
+      <h3 className="text-[15px] font-bold text-fog">{title}</h3>
       {right}
     </header>
     <div className="overflow-x-auto">{children}</div>
@@ -232,16 +274,29 @@ const Section = ({ title, children, right }) => (
 const Table = ({ children }) => <table className="w-full text-sm">{children}</table>;
 
 const KPICard = ({ label, value, color }) => (
-  <div className="bg-white rounded-lg shadow p-4 flex flex-col">
-    <div className={`h-1 -mx-4 -mt-4 mb-3 rounded-t-lg ${color}`}></div>
-    <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
-    <div className="text-3xl font-bold brand-text mt-1">{value}</div>
+  <div className="bg-ink-panel border border-ink-line rounded-xl overflow-hidden">
+    <div className={`h-[3px] ${color}`}></div>
+    <div className="p-4 pt-3.5">
+      <div className="text-[10px] uppercase tracking-[.1em] text-fog-mute">{label}</div>
+      <div className="text-[28px] font-bold tracking-[-.02em] text-fog mt-1 leading-none">{value}</div>
+    </div>
   </div>
 );
 
+const Pill = ({ tone = 'mute', children, className = '' }) => {
+  const tones = {
+    ok:     'bg-okdim text-ok',
+    danger: 'bg-dangerdim text-danger',
+    warn:   'bg-warndim text-warn',
+    info:   'bg-infodim text-info',
+    mute:   'bg-ink-line text-fog-mute',
+  };
+  return <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold ${tones[tone]} ${className}`}>{children}</span>;
+};
+
 const Field = ({ label, children }) => (
   <label className="block">
-    <div className="text-sm font-medium text-slate-700 mb-1">{label}</div>
+    <div className="text-[11px] uppercase tracking-[.08em] font-medium text-fog-mute mb-1.5">{label}</div>
     {children}
   </label>
 );
@@ -368,22 +423,25 @@ function Dashboard({ items, transactions }) {
   }, [transactions, itemMap]);
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold brand-text">Dashboard</h2>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-        <KPICard label="To Reorder" value={kpis.reorder} color="bg-red-600" />
-        <KPICard label="At Risk" value={kpis.atRisk} color="bg-orange-500" />
-        <KPICard label="Overstock" value={kpis.overstock} color="bg-amber-500" />
-        <KPICard label="OK" value={kpis.ok} color="bg-green-600" />
-        <KPICard label="No Usage" value={kpis.noUsage} color="bg-slate-400" />
-        <KPICard label="Tx This Month" value={fmt(kpis.txMonth)} color="brand" />
-        <KPICard label="Total 12M Usage" value={fmt(kpis.total)} color="brand" />
+    <div className="space-y-5">
+      <div>
+        <div className="text-[12px] uppercase tracking-[.1em] text-fog-mute">Inventory overview</div>
+        <h2 className="text-[28px] font-bold tracking-[-.015em] text-fog mt-1">Dashboard</h2>
       </div>
 
-      <Section title={`Reorder Now (${reorderRows.length})`}>
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        <KPICard label="To Reorder" value={kpis.reorder} color="bg-danger" />
+        <KPICard label="At Risk" value={kpis.atRisk} color="bg-orange" />
+        <KPICard label="Overstock" value={kpis.overstock} color="bg-warn" />
+        <KPICard label="OK" value={kpis.ok} color="bg-ok" />
+        <KPICard label="No Usage" value={kpis.noUsage} color="bg-fog-mute" />
+        <KPICard label="Tx This Month" value={fmt(kpis.txMonth)} color="bg-info" />
+        <KPICard label="12M Usage" value={fmt(kpis.total)} color="bg-accent" />
+      </div>
+
+      <Section title={`Reorder Now · ${reorderRows.length} items`}>
         <Table>
-          <thead className="bg-slate-50">
+          <thead>
             <tr>
               <Th>SKU</Th><Th>Item</Th><Th>On Hand</Th><Th>Avg/Mo</Th>
               <Th>Days Left</Th><Th>MOS</Th><Th>Target MOS</Th><Th>Lead (d)</Th><Th>Suggested Qty</Th>
@@ -391,68 +449,76 @@ function Dashboard({ items, transactions }) {
           </thead>
           <tbody>
             {reorderRows.map(m => (
-              <tr key={m.item.id} className="border-t">
-                <Td className="text-slate-500">{m.item.sku || ''}</Td>
-                <Td className="font-medium">{m.item.name}</Td>
+              <tr key={m.item.id} className="border-t border-ink-line hover:bg-okdim/30">
+                <Td className="text-fog-mute font-mono text-[11px]">{m.item.sku || '—'}</Td>
+                <Td className="font-semibold">{m.item.name}</Td>
                 <Td>{fmt(m.onHand)}</Td>
                 <Td>{fmt(m.avgMonthly, 1)}</Td>
                 <Td>{m.daysLeft === null ? '—' : fmt(Math.round(m.daysLeft))}</Td>
-                <Td><span className={`px-2 py-0.5 text-xs font-semibold rounded ${mosColor(m.mos, m.effectiveTargetMos)}`}>{fmt(m.mos, 1)}</span></Td>
-                <Td>{m.item.target_mos}</Td>
-                <Td>{m.item.lead_time_days}</Td>
-                <Td className="font-bold brand-text">{fmt(m.suggested)}</Td>
+                <Td><span className={`px-2 py-0.5 text-[11px] font-bold rounded ${mosColor(m.mos, m.effectiveTargetMos)}`}>{fmt(m.mos, 1)}</span></Td>
+                <Td className="text-fog-mute">{m.item.target_mos}</Td>
+                <Td className="text-fog-mute">{m.item.lead_time_days}</Td>
+                <Td className="font-bold text-accent">{fmt(m.suggested)}</Td>
               </tr>
             ))}
             {reorderRows.length === 0 && (
-              <tr><td colSpan="9" className="text-center py-6 text-slate-500">Nothing to reorder</td></tr>
+              <tr><td colSpan="9" className="text-center py-6 text-fog-mute">Nothing to reorder</td></tr>
             )}
           </tbody>
         </Table>
       </Section>
 
-      <Section title={`At Risk — days of supply below lead time (${atRiskRows.length})`}>
+      <Section title={`At Risk · ${atRiskRows.length} items`}>
         <Table>
-          <thead className="bg-slate-50">
+          <thead>
             <tr>
               <Th>SKU</Th><Th>Item</Th><Th>On Hand</Th><Th>Avg/Mo</Th>
               <Th>Days Left</Th><Th>Lead (d)</Th><Th>Gap (d)</Th>
             </tr>
           </thead>
           <tbody>
-            {[...atRiskRows].sort((a, b) => (a.daysLeft - a.item.lead_time_days) - (b.daysLeft - b.item.lead_time_days)).map(m => (
-              <tr key={m.item.id} className="border-t">
-                <Td className="text-slate-500">{m.item.sku || ''}</Td>
-                <Td className="font-medium">{m.item.name}</Td>
-                <Td>{fmt(m.onHand)}</Td>
-                <Td>{fmt(m.avgMonthly, 1)}</Td>
-                <Td>{fmt(Math.round(m.daysLeft))}</Td>
-                <Td>{m.item.lead_time_days}</Td>
-                <Td className="text-red-600 font-semibold">{Math.round(m.daysLeft - m.item.lead_time_days)}</Td>
-              </tr>
-            ))}
+            {[...atRiskRows].sort((a, b) => (a.daysLeft - a.item.lead_time_days) - (b.daysLeft - b.item.lead_time_days)).map(m => {
+              const gap = Math.round(m.daysLeft - m.item.lead_time_days);
+              const sevColor = gap <= -25 ? 'text-danger' : gap <= -15 ? 'text-orange' : 'text-warn';
+              const sevBg    = gap <= -25 ? 'bg-danger' : gap <= -15 ? 'bg-orange' : 'bg-warn';
+              return (
+                <tr key={m.item.id} className="border-t border-ink-line" style={{ backgroundColor: 'rgba(249,115,22,.04)' }}>
+                  <Td className="text-fog-mute font-mono text-[11px]">
+                    <span className={`inline-block w-[3px] h-[14px] ${sevBg} rounded mr-2 align-middle`} />
+                    {m.item.sku || '—'}
+                  </Td>
+                  <Td className="font-semibold">{m.item.name}</Td>
+                  <Td>{fmt(m.onHand)}</Td>
+                  <Td>{fmt(m.avgMonthly, 1)}</Td>
+                  <Td className="font-bold">{fmt(Math.round(m.daysLeft))}d</Td>
+                  <Td className="text-fog-mute">{m.item.lead_time_days}d</Td>
+                  <Td className={`${sevColor} font-bold`}>{gap}d</Td>
+                </tr>
+              );
+            })}
             {atRiskRows.length === 0 && (
-              <tr><td colSpan="7" className="text-center py-6 text-slate-500">No items at risk</td></tr>
+              <tr><td colSpan="7" className="text-center py-6 text-fog-mute">No items at risk</td></tr>
             )}
           </tbody>
         </Table>
       </Section>
 
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid md:grid-cols-2 gap-5">
         <Section title="Top Movers (last 30 days)">
           <Table>
-            <thead className="bg-slate-50">
+            <thead>
               <tr><Th>SKU</Th><Th>Item</Th><Th className="text-right pr-5">Used</Th></tr>
             </thead>
             <tbody>
               {topMovers.map(r => (
-                <tr key={r.item.id} className="border-t">
-                  <Td className="text-slate-500">{r.item.sku || ''}</Td>
-                  <Td className="font-medium">{r.item.name}</Td>
-                  <Td className="text-right pr-5">{fmt(r.qty)}</Td>
+                <tr key={r.item.id} className="border-t border-ink-line">
+                  <Td className="text-fog-mute font-mono text-[11px]">{r.item.sku || '—'}</Td>
+                  <Td className="font-semibold">{r.item.name}</Td>
+                  <Td className="text-right pr-5 font-bold">{fmt(r.qty)}</Td>
                 </tr>
               ))}
               {topMovers.length === 0 && (
-                <tr><td colSpan="3" className="text-center py-6 text-slate-500">No usage recorded in the last 30 days</td></tr>
+                <tr><td colSpan="3" className="text-center py-6 text-fog-mute">No usage recorded in the last 30 days</td></tr>
               )}
             </tbody>
           </Table>
@@ -460,32 +526,32 @@ function Dashboard({ items, transactions }) {
 
         <Section title="Recent Activity">
           <Table>
-            <thead className="bg-slate-50">
+            <thead>
               <tr><Th>Date</Th><Th>Item</Th><Th>Qty</Th><Th>By</Th></tr>
             </thead>
             <tbody>
               {recentTx.map(t => {
                 const it = itemMap[t.item_id];
                 return (
-                  <tr key={t.id} className="border-t">
-                    <Td>{t.date}</Td>
-                    <Td className="font-medium">{it?.name || <span className="text-red-600">(deleted)</span>}</Td>
-                    <Td className={t.quantity < 0 ? 'text-red-600' : 'text-green-700'}>{t.quantity > 0 ? '+' : ''}{t.quantity}</Td>
-                    <Td className="text-xs text-slate-500">{t.user_email || ''}</Td>
+                  <tr key={t.id} className="border-t border-ink-line">
+                    <Td className="text-fog-mute text-[11px]">{t.date}</Td>
+                    <Td className="font-medium">{it?.name || <span className="text-danger">(deleted)</span>}</Td>
+                    <Td className={`font-bold ${t.quantity < 0 ? 'text-danger' : 'text-ok'}`}>{t.quantity > 0 ? '+' : ''}{t.quantity}</Td>
+                    <Td className="text-[11px] text-fog-mute">{t.user_email ? t.user_email.split('@')[0] : ''}</Td>
                   </tr>
                 );
               })}
               {recentTx.length === 0 && (
-                <tr><td colSpan="4" className="text-center py-6 text-slate-500">No transactions yet</td></tr>
+                <tr><td colSpan="4" className="text-center py-6 text-fog-mute">No transactions yet</td></tr>
               )}
             </tbody>
           </Table>
         </Section>
       </div>
 
-      <Section title="All Items Status">
+      <Section title={`All Items Status · ${allRows.length} active`}>
         <Table>
-          <thead className="bg-slate-50">
+          <thead>
             <tr>
               <Th>SKU</Th><Th>Item</Th><Th>On Hand</Th><Th>12M Usage</Th><Th>Avg/Mo</Th>
               <Th>MOS</Th><Th>Target</Th><Th>Status</Th>
@@ -493,14 +559,14 @@ function Dashboard({ items, transactions }) {
           </thead>
           <tbody>
             {allRows.map(m => (
-              <tr key={m.item.id} className="border-t">
-                <Td className="text-slate-500">{m.item.sku || ''}</Td>
-                <Td className="font-medium">{m.item.name}</Td>
+              <tr key={m.item.id} className="border-t border-ink-line">
+                <Td className="text-fog-mute font-mono text-[11px]">{m.item.sku || '—'}</Td>
+                <Td className="font-semibold">{m.item.name}</Td>
                 <Td>{fmt(m.onHand)}</Td>
                 <Td>{fmt(m.usage12m)}</Td>
                 <Td>{fmt(m.avgMonthly, 1)}</Td>
-                <Td><span className={`px-2 py-0.5 text-xs font-semibold rounded ${mosColor(m.mos, m.effectiveTargetMos)}`}>{fmt(m.mos, 1)}</span></Td>
-                <Td>{m.item.target_mos}</Td>
+                <Td><span className={`px-2 py-0.5 text-[11px] font-bold rounded ${mosColor(m.mos, m.effectiveTargetMos)}`}>{fmt(m.mos, 1)}</span></Td>
+                <Td className="text-fog-mute">{m.item.target_mos}</Td>
                 <Td><StatusBadge status={m.status} /></Td>
               </tr>
             ))}
@@ -693,33 +759,45 @@ function TransactionsHistory({ items, transactions, session, onChange }) {
     onChange();
   }
 
-  return (
-    <div className="space-y-4">
-      <h2 className="text-2xl font-bold brand-text">Transactions</h2>
+  const typeSegments = [
+    ['all',     'All'],
+    ['usage',   'Usage −'],
+    ['receipt', 'Receipt +'],
+  ];
 
-      <div className="bg-white rounded-lg shadow p-4 flex flex-wrap items-end gap-3">
+  return (
+    <div className="space-y-5">
+      <div>
+        <div className="text-[12px] uppercase tracking-[.1em] text-fog-mute">History</div>
+        <h2 className="text-[28px] font-bold tracking-[-.015em] text-fog mt-1">Transactions</h2>
+      </div>
+
+      <div className="bg-ink-panel border border-ink-line rounded-card p-4 flex flex-wrap items-end gap-3">
         <Field label="Search">
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="item, SKU, PO#, user…" className="border rounded px-3 py-2 w-64" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="item, SKU, PO#, user…" className="border border-ink-line rounded-md px-3 py-2 w-64 text-[12px]" />
         </Field>
         <Field label="From">
-          <input type="date" value={start} onChange={e => setStart(e.target.value)} className="border rounded px-3 py-2" />
+          <input type="date" value={start} onChange={e => setStart(e.target.value)} className="border border-ink-line rounded-md px-3 py-2 text-[12px]" />
         </Field>
         <Field label="To">
-          <input type="date" value={end} onChange={e => setEnd(e.target.value)} className="border rounded px-3 py-2" />
+          <input type="date" value={end} onChange={e => setEnd(e.target.value)} className="border border-ink-line rounded-md px-3 py-2 text-[12px]" />
         </Field>
         <Field label="Type">
-          <select value={type} onChange={e => setType(e.target.value)} className="border rounded px-3 py-2 bg-white">
-            <option value="all">All</option>
-            <option value="usage">Usage only (−)</option>
-            <option value="receipt">Receipts only (+)</option>
-          </select>
+          <div className="inline-flex rounded-md border border-ink-line overflow-hidden">
+            {typeSegments.map(([v, l]) => (
+              <button key={v} onClick={() => setType(v)}
+                className={`px-3 py-2 text-[12px] font-semibold ${type === v ? 'bg-ok text-ink-bg' : 'text-fog-mute hover:text-fog'}`}>
+                {l}
+              </button>
+            ))}
+          </div>
         </Field>
-        <button onClick={() => { setSearch(''); setStart(''); setEnd(''); setType('all'); }} className="text-sm text-slate-600 hover:underline ml-auto">Clear filters</button>
+        <button onClick={() => { setSearch(''); setStart(''); setEnd(''); setType('all'); }} className="text-[12px] text-fog-mute hover:text-fog ml-auto">Clear filters</button>
       </div>
 
       <Section title={`${filtered.length.toLocaleString()} transaction${filtered.length === 1 ? '' : 's'} — showing ${shown.length}`}>
         <Table>
-          <thead className="bg-slate-50">
+          <thead>
             <tr>
               <SortableTh k="date"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>Date</SortableTh>
               <SortableTh k="po_number"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>PO#</SortableTh>
@@ -735,32 +813,34 @@ function TransactionsHistory({ items, transactions, session, onChange }) {
             {shown.map(t => {
               const it = itemMap[t.item_id];
               return (
-                <tr key={t.id} className="border-t">
-                  <Td>{t.date}</Td>
-                  <Td>{t.po_number || ''}</Td>
+                <tr key={t.id} className="border-t border-ink-line hover:bg-okdim/30">
+                  <Td className="text-fog-mute text-[11px] whitespace-nowrap">{t.date}</Td>
+                  <Td className="font-mono text-[11px] text-fog-mute">{t.po_number || '—'}</Td>
                   <Td className="font-medium">
-                    {it?.sku && <span className="text-slate-500 mr-2">{it.sku}</span>}
-                    {it?.name || <span className="text-red-600">(deleted)</span>}
+                    {it?.sku && <span className="text-fog-mute font-mono text-[11px] mr-2">{it.sku}</span>}
+                    {it?.name || <span className="text-danger">(deleted)</span>}
                   </Td>
-                  <Td className={t.quantity < 0 ? 'text-red-600' : 'text-green-700'}>{t.quantity > 0 ? '+' : ''}{t.quantity}</Td>
-                  <Td className="text-xs">{t.quantity < 0 ? 'Usage' : 'Receipt'}</Td>
-                  <Td className="text-xs text-slate-500">{t.user_email || ''}</Td>
-                  <Td className="text-xs text-slate-500">{t.created_at ? new Date(t.created_at).toLocaleString() : ''}</Td>
-                  <Td className="text-right pr-5 space-x-2">
-                    <button onClick={() => setEditing({ ...t })} className="bg-slate-600 text-white text-xs px-3 py-1 rounded">Edit</button>
-                    <button onClick={() => deleteTx(t.id)} className="bg-red-600 text-white text-xs px-3 py-1 rounded">Delete</button>
+                  <Td className={`font-bold ${t.quantity < 0 ? 'text-danger' : 'text-ok'}`}>{t.quantity > 0 ? '+' : ''}{t.quantity}</Td>
+                  <Td>
+                    <Pill tone={t.quantity < 0 ? 'danger' : 'ok'}>{t.quantity < 0 ? 'Usage' : 'Receipt'}</Pill>
+                  </Td>
+                  <Td className="text-[11px] text-fog-mute">{t.user_email ? t.user_email.split('@')[0] : ''}</Td>
+                  <Td className="text-[11px] text-fog-mute whitespace-nowrap">{t.created_at ? new Date(t.created_at).toLocaleString() : ''}</Td>
+                  <Td className="text-right pr-5 space-x-3 whitespace-nowrap">
+                    <button onClick={() => setEditing({ ...t })} className="text-[11px] text-fog-mute hover:text-fog">Edit</button>
+                    <button onClick={() => deleteTx(t.id)} className="text-[11px] text-danger hover:opacity-80">Del</button>
                   </Td>
                 </tr>
               );
             })}
             {shown.length === 0 && (
-              <tr><td colSpan="8" className="text-center py-6 text-slate-500">No transactions match.</td></tr>
+              <tr><td colSpan="8" className="text-center py-6 text-fog-mute">No transactions match.</td></tr>
             )}
           </tbody>
         </Table>
         {filtered.length > shown.length && (
-          <div className="p-3 text-center border-t">
-            <button onClick={() => setLimit(n => n + 100)} className="text-sm brand-text font-medium hover:underline">
+          <div className="p-3 text-center border-t border-ink-line">
+            <button onClick={() => setLimit(n => n + 100)} className="text-[12px] text-ok font-semibold hover:underline">
               Load 100 more ({filtered.length - shown.length} remaining)
             </button>
           </div>
@@ -768,18 +848,18 @@ function TransactionsHistory({ items, transactions, session, onChange }) {
       </Section>
 
       {editing && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEditing(null)}>
-          <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold brand-text mb-4">Edit Transaction</h3>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setEditing(null)}>
+          <div className="bg-ink-panel border border-ink-line rounded-card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h3 className="text-[15px] font-bold text-fog mb-4">Edit Transaction</h3>
             <div className="space-y-3">
               <Field label="Date">
-                <input type="date" value={editing.date} onChange={e => setEditing({ ...editing, date: e.target.value })} className="w-full border rounded px-3 py-2" />
+                <input type="date" value={editing.date} onChange={e => setEditing({ ...editing, date: e.target.value })} className="w-full border border-ink-line rounded-md px-3 py-2 text-[12px]" />
               </Field>
               <Field label="PO #">
-                <input value={editing.po_number || ''} onChange={e => setEditing({ ...editing, po_number: e.target.value })} className="w-full border rounded px-3 py-2" />
+                <input value={editing.po_number || ''} onChange={e => setEditing({ ...editing, po_number: e.target.value })} className="w-full border border-ink-line rounded-md px-3 py-2 text-[12px]" />
               </Field>
               <Field label="Item">
-                <select value={editing.item_id} onChange={e => setEditing({ ...editing, item_id: e.target.value })} className="w-full border rounded px-3 py-2 bg-white">
+                <select value={editing.item_id} onChange={e => setEditing({ ...editing, item_id: e.target.value })} className="w-full border border-ink-line rounded-md px-3 py-2 text-[12px]">
                   {activeItems.map(i => <option key={i.id} value={i.id}>{i.sku ? `${i.sku} — ${i.name}` : i.name}</option>)}
                   {!activeItems.find(i => i.id === editing.item_id) && itemMap[editing.item_id] && (
                     <option value={editing.item_id}>{itemMap[editing.item_id].name} (archived)</option>
@@ -787,13 +867,13 @@ function TransactionsHistory({ items, transactions, session, onChange }) {
                 </select>
               </Field>
               <Field label="Quantity (negative for usage)">
-                <input type="number" value={editing.quantity} onChange={e => setEditing({ ...editing, quantity: e.target.value })} className="w-full border rounded px-3 py-2" />
+                <input type="number" value={editing.quantity} onChange={e => setEditing({ ...editing, quantity: e.target.value })} className="w-full border border-ink-line rounded-md px-3 py-2 text-[12px]" />
               </Field>
               <div className="text-xs text-slate-500">Originally entered by: {editing.user_email || '(unknown)'}</div>
             </div>
             <div className="flex gap-2 mt-5 justify-end">
-              <button onClick={() => setEditing(null)} className="px-4 py-2 text-slate-700">Cancel</button>
-              <button onClick={saveEdit} className="brand text-white px-4 py-2 rounded font-medium">Save</button>
+              <button onClick={() => setEditing(null)} className="px-4 py-2 text-fog-mute hover:text-fog text-[12px]">Cancel</button>
+              <button onClick={saveEdit} className="bg-ok text-ink-bg px-4 py-2 rounded-md font-semibold text-[12px]">Save</button>
             </div>
           </div>
         </div>
@@ -2073,28 +2153,31 @@ function MainApp({ session, signOut }) {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-100">
-      <nav className="brand text-white shadow">
+    <div className="min-h-screen bg-ink-bg text-fog">
+      <nav className="bg-ink-panel2 border-b border-ink-line">
         <div className="max-w-7xl mx-auto px-6 py-3 flex flex-wrap items-center gap-4">
-          <h1 className="text-lg font-bold">Scott Inventory</h1>
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-md bg-ok text-ink-bg flex items-center justify-center font-black text-sm">S</div>
+            <h1 className="text-[15px] font-bold text-fog">Scott Inventory</h1>
+          </div>
           <div className="flex flex-wrap gap-1">
             {pages.map(([id, label]) => (
               <button key={id} onClick={() => setPage(id)}
-                className={`px-3 py-1.5 rounded text-sm ${page === id ? 'bg-white brand-text font-semibold' : 'hover:bg-white/10'}`}>
+                className={`px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${page === id ? 'bg-okdim text-fog border border-ok/40' : 'text-fog-mute hover:text-fog hover:bg-ink-panel'}`}>
                 {label}
               </button>
             ))}
           </div>
-          <div className="ml-auto flex items-center gap-3 text-sm">
-            <span className="opacity-75 hidden sm:inline">{session.user.email}</span>
-            <button onClick={signOut} className="bg-white/10 hover:bg-white/20 px-3 py-1 rounded">Sign Out</button>
+          <div className="ml-auto flex items-center gap-3 text-[12px]">
+            <span className="text-fog-mute hidden sm:inline">{session.user.email}</span>
+            <button onClick={signOut} className="text-fog-mute hover:text-fog px-3 py-1 rounded-md border border-ink-line hover:border-ink-lineX">Sign Out</button>
           </div>
         </div>
       </nav>
       <main className="max-w-7xl mx-auto p-6">
-        {err && <div className="bg-red-100 text-red-800 p-3 rounded mb-4">{err}</div>}
+        {err && <div className="bg-dangerdim text-danger p-3 rounded-md mb-4 border border-danger/30">{err}</div>}
         {loading ? (
-          <div className="text-slate-500">Loading…</div>
+          <div className="text-fog-mute">Loading…</div>
         ) : (
           <>
             {page === 'dashboard'   && <Dashboard          items={items} transactions={transactions} />}
