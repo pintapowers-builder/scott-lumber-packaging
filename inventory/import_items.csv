@@ -1,26 +1,26 @@
-name,case_pack,lead_time_days,target_mos,active
-"48""",1,30,3,True
-"60""",1,30,3,True
-"72""",1,30,3,True
-"80""",1,30,3,True
-96X500 white/black,1,30,3,True
-96X1000 white/black,1,30,3,True
-96X500wt (Tan),1,30,3,True
-96 X 500 EXPORT,1,14,3,True
-"101""",1,30,3,True
-"108""CF",1,30,3,True
-"108""CF2",1,14,3,True
-"108""LF",1,30,3,True
-"120""x1000CF White/Tan",1,30,3,True
-120x1000CF (U-Fold),1,30,3,True
-120x1000,1,30,3,True
-144x500,1,120,3,True
-114x500 white/tan,1,30,3,True
-114 x 500,1,30,3,True
-99x49x32,1,14,3,True
-123x49x32,1,14,3,True
-30x48x40,1,14,3,True
-269x50x40,1,90,3,True
-"139"" x 50"" x 40""",1,90,3,True
-"261"" x 50"" x 46"" white/tan",1,90,3,True
-"196"" x 58"" x 46"" white/tan",1,90,3,True
+"name","case_pack","lead_time_days","target_mos","active"
+"48""","1","30","3","True"
+"60""","1","30","3","True"
+"72""","1","30","3","True"
+"80""","1","30","3","True"
+"96X500 white/black","1","30","3","True"
+"96X1000 white/black","1","30","3","True"
+"96X500wt (Tan)","1","30","3","True"
+"96 X 500 EXPORT","1","14","3","True"
+"101""","1","30","3","True"
+"108""CF","1","30","3","True"
+"108""CF2","1","14","3","True"
+"108""LF","1","30","3","True"
+"120""x1000CF White/Tan","1","30","3","True"
+"120x1000CF (U-Fold)","1","30","3","True"
+"120x1000","1","30","3","True"
+"144x500","1","120","3","True"
+"114x500 white/tan","1","30","3","True"
+"114 x 500","1","30","3","True"
+"99x49x32","1","30","3","True"
+"123x49x32","1","30","3","True"
+"30x48x40","1","120","3","True"
+"269x50x40","1","120","3","True"
+"139"" x 50"" x 40""","1","120","3","True"
+"261"" x 50"" x 46"" white/tan","1","120","3","True"
+"196"" x 58"" x 46"" white/tan","1","120","3","True"

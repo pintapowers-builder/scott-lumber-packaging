@@ -208,6 +208,16 @@ function StatusBadge({ status }) {
 // ─────────────────────────────────────────────────────────────
 const Th = ({ children, className = '' }) => <th className={`text-left text-xs font-semibold text-slate-600 uppercase tracking-wide px-3 py-2 ${className}`}>{children}</th>;
 const Td = ({ children, className = '' }) => <td className={`px-3 py-2 text-sm ${className}`}>{children}</td>;
+const SortableTh = ({ k, sortKey, sortDir, onSort, children, className = '' }) => {
+  const active = sortKey === k;
+  const arrow = active ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+  return (
+    <th onClick={() => onSort(k)}
+        className={`text-left text-xs font-semibold uppercase tracking-wide px-3 py-2 cursor-pointer select-none hover:bg-slate-100 ${active ? 'text-slate-900' : 'text-slate-600'} ${className}`}>
+      {children}{arrow}
+    </th>
+  );
+};
 
 const Section = ({ title, children, right }) => (
   <section className="bg-white rounded-lg shadow">
@@ -592,12 +602,35 @@ function TransactionsHistory({ items, transactions, session, onChange }) {
   const [type, setType]     = useState('all');
   const [editing, setEditing] = useState(null);
   const [limit, setLimit]   = useState(100);
+  const [sortKey, setSortKey] = useState('date');
+  const [sortDir, setSortDir] = useState('desc');
 
   const itemMap = useMemo(() => Object.fromEntries(items.map(i => [i.id, i])), [items]);
   const activeItems = useMemo(() => items.filter(i => i.active).sort((a, b) => a.name.localeCompare(b.name)), [items]);
 
+  function toggleSort(key) {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir(key === 'date' || key === 'created_at' ? 'desc' : 'asc'); }
+  }
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const valFor = (t, k) => {
+      if (k === 'item') return (itemMap[t.item_id]?.name || '').toLowerCase();
+      if (k === 'type') return t.quantity < 0 ? 'usage' : 'receipt';
+      if (k === 'po_number') return (t.po_number || '').toLowerCase();
+      if (k === 'user_email') return (t.user_email || '').toLowerCase();
+      if (k === 'created_at') return t.created_at || '';
+      if (k === 'quantity') return t.quantity;
+      return t[k] || '';
+    };
+    const cmp = (a, b) => {
+      const va = valFor(a, sortKey);
+      const vb = valFor(b, sortKey);
+      let r = (typeof va === 'number' && typeof vb === 'number') ? (va - vb) : (va < vb ? -1 : va > vb ? 1 : 0);
+      if (r === 0 && sortKey !== 'date') r = (a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
+      return sortDir === 'asc' ? r : -r;
+    };
     return transactions
       .filter(t => {
         if (start && t.date < start) return false;
@@ -611,8 +644,8 @@ function TransactionsHistory({ items, transactions, session, onChange }) {
         }
         return true;
       })
-      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.created_at || '').localeCompare(a.created_at || '')));
-  }, [transactions, search, start, end, type, itemMap]);
+      .sort(cmp);
+  }, [transactions, search, start, end, type, itemMap, sortKey, sortDir]);
 
   const shown = filtered.slice(0, limit);
 
@@ -688,7 +721,14 @@ function TransactionsHistory({ items, transactions, session, onChange }) {
         <Table>
           <thead className="bg-slate-50">
             <tr>
-              <Th>Date</Th><Th>PO#</Th><Th>Item</Th><Th>Qty</Th><Th>Type</Th><Th>Entered By</Th><Th>Entered At</Th><Th className="text-right pr-5">Actions</Th>
+              <SortableTh k="date"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>Date</SortableTh>
+              <SortableTh k="po_number"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>PO#</SortableTh>
+              <SortableTh k="item"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>Item</SortableTh>
+              <SortableTh k="quantity"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>Qty</SortableTh>
+              <SortableTh k="type"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>Type</SortableTh>
+              <SortableTh k="user_email" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>Entered By</SortableTh>
+              <SortableTh k="created_at" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>Entered At</SortableTh>
+              <Th className="text-right pr-5">Actions</Th>
             </tr>
           </thead>
           <tbody>
@@ -1177,6 +1217,39 @@ function BurnRate({ items, transactions }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Item name cleaning (go-live rules)
+//   - "<size> white/black" → "<size> wb"
+//   - "<size> white/tan"   → "<size> wt"
+//   - "<size>wt (anything)" → "<size> wt"
+//   - sibling rule: if an item is white/black for a size and another item
+//     has that exact size with no color label, the sibling becomes wt.
+// ─────────────────────────────────────────────────────────────
+const NAME_RE_WB    = /\s*white\s*[\/\\]?\s*black\s*$/i;
+const NAME_RE_WT    = /\s*white\s*[\/\\]?\s*tan\s*$/i;
+const NAME_RE_WT_PAREN = /\s*wt\s*\(.*?\)\s*$/i;
+
+function classifyName(rawName) {
+  const trimmed = (rawName || '').trim();
+  if (NAME_RE_WB.test(trimmed))       return { size: trimmed.replace(NAME_RE_WB, '').trim(),       color: 'wb' };
+  if (NAME_RE_WT.test(trimmed))       return { size: trimmed.replace(NAME_RE_WT, '').trim(),       color: 'wt' };
+  if (NAME_RE_WT_PAREN.test(trimmed)) return { size: trimmed.replace(NAME_RE_WT_PAREN, '').trim(), color: 'wt' };
+  return { size: trimmed, color: null };
+}
+
+function buildNameRenameMap(rawNames) {
+  const entries = rawNames.map(n => ({ raw: n, ...classifyName(n) }));
+  const wbSizes = new Set(entries.filter(e => e.color === 'wb').map(e => e.size.toLowerCase()));
+  for (const e of entries) {
+    if (!e.color && wbSizes.has(e.size.toLowerCase())) e.color = 'wt';
+  }
+  const map = {};
+  for (const e of entries) {
+    if (e.color) map[e.raw] = `${e.size} ${e.color}`;
+  }
+  return map;
+}
+
+// ─────────────────────────────────────────────────────────────
 // Import
 // ─────────────────────────────────────────────────────────────
 function ImportPage({ transactions, items, onComplete }) {
@@ -1186,6 +1259,7 @@ function ImportPage({ transactions, items, onComplete }) {
   const [running, setRunning]   = useState(false);
   const [summary, setSummary]   = useState(null);
   const [progress, setProgress] = useState(null);
+  const [wipeText, setWipeText] = useState('');
 
   const hasExistingTx = transactions.length > 0;
 
@@ -1226,16 +1300,21 @@ function ImportPage({ transactions, items, onComplete }) {
       // ── Items
       setStatus('Parsing items CSV…');
       const itemsParsed = window.Papa.parse(itemsCsv.text, { header: true, skipEmptyLines: true }).data;
+      const rawNames = itemsParsed.filter(r => r.name && r.name.trim()).map(r => r.name.trim());
+      const renameMap = buildNameRenameMap(rawNames);
       const normItems = itemsParsed
         .filter(r => r.name && r.name.trim())
-        .map(r => ({
-          sku: (r.sku || '').trim() || null,
-          name: r.name.trim(),
-          case_pack: parseInt(r.case_pack) || 1,
-          lead_time_days: parseInt(r.lead_time_days) || 30,
-          target_mos: parseInt(r.target_mos) || 3,
-          active: (r.active === 'True' || r.active === 'true' || r.active === true || r.active === '1'),
-        }));
+        .map(r => {
+          const raw = r.name.trim();
+          return {
+            sku: (r.sku || '').trim() || null,
+            name: renameMap[raw] || raw,
+            case_pack: parseInt(r.case_pack) || 1,
+            lead_time_days: parseInt(r.lead_time_days) || 30,
+            target_mos: parseInt(r.target_mos) || 3,
+            active: (r.active === 'True' || r.active === 'true' || r.active === true || r.active === '1'),
+          };
+        });
 
       setStatus('Checking existing items…');
       const existing = await fetchAll('items');
@@ -1265,7 +1344,8 @@ function ImportPage({ transactions, items, onComplete }) {
       for (const r of txParsed) {
         if (!r.date) continue;
         const sku  = (r.sku || r.item_sku || '').trim();
-        const name = (r.item_name || '').trim();
+        const rawName = (r.item_name || '').trim();
+        const name = renameMap[rawName] || rawName;
         const id = (sku && skuToId[sku]) || (name && nameToId[name]);
         if (!id) {
           const label = sku || name || '(blank)';
@@ -1285,7 +1365,8 @@ function ImportPage({ transactions, items, onComplete }) {
       // Dedup against existing transactions using a (date|item_id|qty|po) key
       setStatus('Checking for duplicates…');
       const keyOf = t => `${t.date}|${t.item_id}|${t.quantity}|${t.po_number || ''}`;
-      const existingKeys = new Set(transactions.map(keyOf));
+      const existingTx = await fetchAll('transactions');
+      const existingKeys = new Set(existingTx.map(keyOf));
       const beforeDedup = normTx.length;
       const toInsertTx = normTx.filter(t => !existingKeys.has(keyOf(t)));
       const skippedDup = beforeDedup - toInsertTx.length;
@@ -1317,6 +1398,36 @@ function ImportPage({ transactions, items, onComplete }) {
     } finally {
       setRunning(false);
     }
+  }
+
+  async function wipeAndReimport() {
+    if (!itemsCsv || !txCsv) { setStatus('Select both CSV files first.'); return; }
+    if (wipeText !== 'WIPE') { setStatus('Type WIPE to confirm.'); return; }
+    setRunning(true);
+    setSummary(null);
+    setProgress(null);
+    try {
+      setStatus('Deleting transaction audits…');
+      let r = await sb.from('transaction_audits').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      if (r.error) throw new Error('Delete audits failed: ' + r.error.message);
+
+      setStatus('Deleting transactions…');
+      r = await sb.from('transactions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      if (r.error) throw new Error('Delete transactions failed: ' + r.error.message);
+
+      setStatus('Deleting items…');
+      r = await sb.from('items').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      if (r.error) throw new Error('Delete items failed: ' + r.error.message);
+
+      setWipeText('');
+      onComplete();
+    } catch (e) {
+      setStatus('Error: ' + e.message);
+      setRunning(false);
+      return;
+    }
+    setRunning(false);
+    await runImport();
   }
 
   return (
@@ -1381,6 +1492,29 @@ function ImportPage({ transactions, items, onComplete }) {
               )}
             </div>
           )}
+        </div>
+      </Section>
+
+      <Section title="Go-Live: Wipe All Data & Reimport">
+        <div className="p-5 space-y-3">
+          <div className="bg-red-50 border border-red-300 rounded p-3 text-sm text-red-800">
+            <b>Destructive.</b> Deletes every row from <code>transaction_audits</code>, <code>transactions</code>, and <code>items</code>, then runs the import from the loaded CSVs. Use this only for go-live (or to reset to a clean state).
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={wipeText}
+              onChange={e => setWipeText(e.target.value)}
+              placeholder="Type WIPE to enable"
+              className="border rounded px-3 py-2 text-sm w-56"
+              disabled={running}
+            />
+            <button
+              onClick={wipeAndReimport}
+              disabled={running || !itemsCsv || !txCsv || wipeText !== 'WIPE'}
+              className="bg-red-600 text-white px-5 py-2 rounded font-medium disabled:opacity-50">
+              {running ? 'Running…' : 'Wipe All Data & Reimport'}
+            </button>
+          </div>
         </div>
       </Section>
     </div>
