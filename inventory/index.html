@@ -79,8 +79,11 @@
 
   .brand      { background-color: #3fa85c; color: #ffffff; }
   .brand-text { color: var(--c-text); }
-  /* themed form controls so they pick up bg/text colors automatically */
-  input[type="text"], input[type="date"], input[type="number"], input[type="email"], input[type="password"], input[type="search"], select, textarea {
+  /* themed form controls so they pick up bg/text colors automatically.
+     :not() chain catches typeless <input> elements (default-text) without
+     hijacking checkboxes / radios / file pickers / sliders / color pickers. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="submit"]):not([type="button"]):not([type="reset"]),
+  select, textarea {
     background-color: var(--c-panel2);
     color: var(--c-text);
     border-color: var(--c-line);
@@ -969,42 +972,48 @@ function ItemsPage({ items, onChange }) {
     .filter(i => !q || (i.name || '').toLowerCase().includes(q) || (i.sku || '').toLowerCase().includes(q))
     .sort((a, b) => (a.active === b.active ? a.name.localeCompare(b.name) : (a.active ? -1 : 1)));
 
+  const inp = "w-full border border-ink-line rounded-md px-3 py-2 text-[12px]";
+  const inpSmall = "border border-ink-line rounded-md px-2 py-1 text-[12px]";
+
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold brand-text">Items</h2>
+    <div className="space-y-5">
+      <div>
+        <div className="text-[12px] uppercase tracking-[.1em] text-fog-mute">Catalog</div>
+        <h2 className="text-[28px] font-bold tracking-[-.015em] text-fog mt-1">Items</h2>
+      </div>
 
       <Section title="Add New Item">
         <form onSubmit={add} className="p-5 grid grid-cols-1 md:grid-cols-6 gap-3">
           <Field label="SKU">
-            <input value={form.sku} onChange={e => setForm({ ...form, sku: e.target.value })} placeholder="Optional" className="w-full border rounded px-3 py-2" />
+            <input value={form.sku} onChange={e => setForm({ ...form, sku: e.target.value })} placeholder="Optional" className={inp} />
           </Field>
           <Field label="Name">
-            <input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full border rounded px-3 py-2" />
+            <input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className={inp} />
           </Field>
           <Field label="Case Pack">
-            <input type="number" min="1" value={form.case_pack} onChange={e => setForm({ ...form, case_pack: e.target.value })} className="w-full border rounded px-3 py-2" />
+            <input type="number" min="1" value={form.case_pack} onChange={e => setForm({ ...form, case_pack: e.target.value })} className={inp} />
           </Field>
           <Field label="Lead Time (days)">
-            <input type="number" min="0" value={form.lead_time_days} onChange={e => setForm({ ...form, lead_time_days: e.target.value })} className="w-full border rounded px-3 py-2" />
+            <input type="number" min="0" value={form.lead_time_days} onChange={e => setForm({ ...form, lead_time_days: e.target.value })} className={inp} />
           </Field>
           <Field label="Target MOS">
-            <input type="number" min="0" value={form.target_mos} onChange={e => setForm({ ...form, target_mos: e.target.value })} className="w-full border rounded px-3 py-2" />
+            <input type="number" min="0" value={form.target_mos} onChange={e => setForm({ ...form, target_mos: e.target.value })} className={inp} />
           </Field>
           <div className="flex items-end">
-            <button type="submit" disabled={adding} className="brand text-white px-4 py-2 rounded w-full disabled:opacity-50">
+            <button type="submit" disabled={adding} className="bg-ok text-white px-4 py-2 rounded-md w-full text-[12px] font-semibold disabled:opacity-50">
               {adding ? 'Adding…' : 'Add Item'}
             </button>
           </div>
-          {addErr && <div className="md:col-span-6 text-red-600 text-sm">{addErr}</div>}
+          {addErr && <div className="md:col-span-6 text-danger text-[12px]">{addErr}</div>}
         </form>
       </Section>
 
       <Section
-        title={`Items (${rows.length})`}
+        title={`Items · ${rows.length}`}
         right={
           <div className="flex items-center gap-4">
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or SKU…" className="border rounded px-3 py-1.5 text-sm" />
-            <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or SKU…" className={inpSmall} />
+            <label className="flex items-center gap-2 text-[12px] text-fog-mute">
               <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />
               Show archived
             </label>
@@ -1012,7 +1021,7 @@ function ItemsPage({ items, onChange }) {
         }
       >
         <Table>
-          <thead className="bg-slate-50">
+          <thead>
             <tr>
               <Th>SKU</Th><Th>Name</Th><Th>Case Pack</Th><Th>Lead Time (d)</Th><Th>Target MOS</Th><Th>Status</Th><Th className="text-right pr-5">Actions</Th>
             </tr>
@@ -1023,38 +1032,38 @@ function ItemsPage({ items, onChange }) {
               const dirty = Object.keys(e).length > 0;
               const setField = (k, v) => setEdits(prev => ({ ...prev, [it.id]: { ...(prev[it.id] || {}), [k]: v } }));
               return (
-                <tr key={it.id} className={`border-t ${!it.active ? 'bg-slate-50 text-slate-400' : ''}`}>
+                <tr key={it.id} className={`border-t border-ink-line ${!it.active ? 'opacity-60' : ''}`}>
                   <Td>
                     <input value={e.sku ?? it.sku ?? ''}
                       onChange={ev => setField('sku', ev.target.value)}
-                      className="w-24 border rounded px-2 py-1" placeholder="—" />
+                      className={`w-24 ${inpSmall} font-mono`} placeholder="—" />
                   </Td>
                   <Td>
                     <input value={e.name ?? it.name}
                       onChange={ev => setField('name', ev.target.value)}
-                      className="w-56 border rounded px-2 py-1 font-medium" />
+                      className={`w-56 ${inpSmall} font-medium`} />
                   </Td>
                   <Td>
                     <input type="number" min="1" value={e.case_pack ?? it.case_pack}
                       onChange={ev => setField('case_pack', ev.target.value)}
-                      className="w-20 border rounded px-2 py-1" />
+                      className={`w-20 ${inpSmall}`} />
                   </Td>
                   <Td>
                     <input type="number" min="0" value={e.lead_time_days ?? it.lead_time_days}
                       onChange={ev => setField('lead_time_days', ev.target.value)}
-                      className="w-20 border rounded px-2 py-1" />
+                      className={`w-20 ${inpSmall}`} />
                   </Td>
                   <Td>
                     <input type="number" min="0" value={e.target_mos ?? it.target_mos}
                       onChange={ev => setField('target_mos', ev.target.value)}
-                      className="w-20 border rounded px-2 py-1" />
+                      className={`w-20 ${inpSmall}`} />
                   </Td>
-                  <Td>{it.active ? <span className="text-green-700 text-xs font-semibold">ACTIVE</span> : <span className="text-slate-500 text-xs font-semibold">ARCHIVED</span>}</Td>
-                  <Td className="text-right pr-5 space-x-2">
+                  <Td>{it.active ? <Pill tone="ok">ACTIVE</Pill> : <Pill tone="mute">ARCHIVED</Pill>}</Td>
+                  <Td className="text-right pr-5 space-x-3 whitespace-nowrap">
                     {dirty && (
-                      <button onClick={() => saveRow(it.id)} className="bg-green-600 text-white text-xs px-3 py-1 rounded">Save</button>
+                      <button onClick={() => saveRow(it.id)} className="bg-ok text-white text-[11px] px-3 py-1 rounded-md font-semibold">Save</button>
                     )}
-                    <button onClick={() => toggleArchive(it)} className="bg-slate-600 text-white text-xs px-3 py-1 rounded">
+                    <button onClick={() => toggleArchive(it)} className="text-[11px] text-fog-mute hover:text-fog px-3 py-1 rounded-md border border-ink-line">
                       {it.active ? 'Archive' : 'Restore'}
                     </button>
                   </Td>
@@ -1062,7 +1071,7 @@ function ItemsPage({ items, onChange }) {
               );
             })}
             {rows.length === 0 && (
-              <tr><td colSpan="7" className="text-center py-6 text-slate-500">No items match.</td></tr>
+              <tr><td colSpan="7" className="text-center py-6 text-fog-mute">No items match.</td></tr>
             )}
           </tbody>
         </Table>
