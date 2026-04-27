@@ -88,6 +88,9 @@
     color: var(--c-text);
     border-color: var(--c-line);
   }
+  /* The browser styles <option> independently of its parent <select>, so it
+     needs its own rule or the popup list renders white-on-white in dark mode. */
+  option { background-color: var(--c-panel); color: var(--c-text); }
   input::placeholder, textarea::placeholder { color: var(--c-mute); }
 </style>
 </head>
