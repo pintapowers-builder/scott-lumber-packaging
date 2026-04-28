@@ -705,12 +705,11 @@
         // Fire Google Ads form-submit conversion, then submit to Netlify.
         // event_callback gives the beacon time to send before navigation;
         // 1500ms timeout is a fallback in case gtag never calls back (blocker, offline, etc).
-        // TODO: replace CONVERSION_LABEL_PLACEHOLDER with the form-submit conversion label from Google Ads.
         let submitted=false;
         const doSubmit=()=>{ if(!submitted){submitted=true; quoteForm.submit();} };
         if(typeof gtag==='function'){
           gtag('event','conversion',{
-            'send_to':'AW-1026068236/CONVERSION_LABEL_PLACEHOLDER',
+            'send_to':'AW-1026068236/8bUgCNDop6QcEIyeoukD',
             'event_callback':doSubmit,
           });
           setTimeout(doSubmit,1500);
@@ -721,11 +720,10 @@
     }
 
     // Phone-click conversion (header + contact section tel: links).
-    // TODO: replace CONVERSION_LABEL_PLACEHOLDER with the phone-call conversion label from Google Ads.
     document.querySelectorAll('a[href^="tel:"]').forEach(a=>{
       a.addEventListener('click',()=>{
         if(typeof gtag==='function'){
-          gtag('event','conversion',{ 'send_to':'AW-1026068236/CONVERSION_LABEL_PLACEHOLDER' });
+          gtag('event','conversion',{ 'send_to':'AW-1026068236/JaEsCNeiqKQcEIyeoukD' });
         }
       });
     });
