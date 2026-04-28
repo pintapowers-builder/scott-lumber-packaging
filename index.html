@@ -12,6 +12,31 @@
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://scottlumberpackaging.com">
 
+  <!-- Google tag (gtag.js) — GA4 + Google Ads -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-4YX00P8Y5J"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-4YX00P8Y5J');
+    gtag('config', 'AW-1026068236');
+  </script>
+
+  <!-- Capture UTM / gclid / landing_page / referrer into sessionStorage on first hit -->
+  <script>
+    (function(){
+      try {
+        var params = new URLSearchParams(window.location.search);
+        ['utm_source','utm_medium','utm_campaign','utm_term','utm_content','gclid'].forEach(function(k){
+          var v = params.get(k);
+          if (v) sessionStorage.setItem(k, v);
+        });
+        if (!sessionStorage.getItem('landing_page')) sessionStorage.setItem('landing_page', window.location.href);
+        if (!sessionStorage.getItem('referrer'))     sessionStorage.setItem('referrer', document.referrer || '');
+      } catch (_) {}
+    })();
+  </script>
+
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -535,7 +560,7 @@
           <div class="contact-detail">
             <div class="contact-detail-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg></div>
             <!-- REPLACE with actual phone number -->
-            <div><div>Phone</div><p>(866) 821-2075</p></div>
+            <div><div>Phone</div><p><a href="tel:8668212075">(866) 821-2075</a></p></div>
           </div>
           <div class="contact-detail">
             <div class="contact-detail-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
@@ -552,6 +577,14 @@
       <form class="quote-form" name="quote" method="POST" data-netlify="true" netlify-honeypot="bot-field">
         <p style="display:none"><label>Don't fill this out: <input name="bot-field"></label></p>
         <input type="hidden" name="subject" id="form-subject" value="New Quote Request">
+        <input type="hidden" name="utm_source"   id="utm_source">
+        <input type="hidden" name="utm_medium"   id="utm_medium">
+        <input type="hidden" name="utm_campaign" id="utm_campaign">
+        <input type="hidden" name="utm_term"     id="utm_term">
+        <input type="hidden" name="utm_content"  id="utm_content">
+        <input type="hidden" name="gclid"        id="gclid">
+        <input type="hidden" name="landing_page" id="landing_page">
+        <input type="hidden" name="referrer"     id="referrer">
         <h3>Request a Free Quote</h3>
         <p>Fill out the form below and we'll get back to you quickly.</p>
         <div class="form-row">
@@ -620,6 +653,12 @@
     nameInput.addEventListener('input',updateSubject);
     companyInput.addEventListener('input',updateSubject);
 
+    // Populate attribution hidden fields from sessionStorage (captured at landing).
+    ['utm_source','utm_medium','utm_campaign','utm_term','utm_content','gclid','landing_page','referrer'].forEach(k=>{
+      const el=document.getElementById(k);
+      if(el){ try{ el.value = sessionStorage.getItem(k) || ''; }catch(_){} }
+    });
+
     // Dual-submit quote to Supabase as a backup log alongside Netlify Forms.
     // If Supabase fails, Netlify still captures the submission — no data loss.
     const SUPA_URL='https://vrmwapdnkfadomduxlxq.supabase.co';
@@ -637,6 +676,14 @@
           phone:(fd.get('phone')||'').toString().trim()||null,
           product:(fd.get('product')||'').toString().trim()||null,
           message:(fd.get('message')||'').toString().trim()||null,
+          utm_source:(fd.get('utm_source')||'').toString().trim()||null,
+          utm_medium:(fd.get('utm_medium')||'').toString().trim()||null,
+          utm_campaign:(fd.get('utm_campaign')||'').toString().trim()||null,
+          utm_term:(fd.get('utm_term')||'').toString().trim()||null,
+          utm_content:(fd.get('utm_content')||'').toString().trim()||null,
+          gclid:(fd.get('gclid')||'').toString().trim()||null,
+          landing_page:(fd.get('landing_page')||'').toString().trim()||null,
+          referrer:(fd.get('referrer')||'').toString().trim()||null,
         };
         try{
           const ctrl=new AbortController();
@@ -654,9 +701,33 @@
           });
           clearTimeout(timer);
         }catch(_){/* non-fatal — Netlify still captures the submission */}
-        quoteForm.submit();
+        // Fire Google Ads form-submit conversion, then submit to Netlify.
+        // event_callback gives the beacon time to send before navigation;
+        // 1500ms timeout is a fallback in case gtag never calls back (blocker, offline, etc).
+        // TODO: replace CONVERSION_LABEL_PLACEHOLDER with the form-submit conversion label from Google Ads.
+        let submitted=false;
+        const doSubmit=()=>{ if(!submitted){submitted=true; quoteForm.submit();} };
+        if(typeof gtag==='function'){
+          gtag('event','conversion',{
+            'send_to':'AW-1026068236/CONVERSION_LABEL_PLACEHOLDER',
+            'event_callback':doSubmit,
+          });
+          setTimeout(doSubmit,1500);
+        } else {
+          doSubmit();
+        }
       });
     }
+
+    // Phone-click conversion (header + contact section tel: links).
+    // TODO: replace CONVERSION_LABEL_PLACEHOLDER with the phone-call conversion label from Google Ads.
+    document.querySelectorAll('a[href^="tel:"]').forEach(a=>{
+      a.addEventListener('click',()=>{
+        if(typeof gtag==='function'){
+          gtag('event','conversion',{ 'send_to':'AW-1026068236/CONVERSION_LABEL_PLACEHOLDER' });
+        }
+      });
+    });
   </script>
 </body>
 </html>
