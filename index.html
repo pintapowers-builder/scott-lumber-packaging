@@ -577,14 +577,6 @@
       <form class="quote-form" name="quote" method="POST" data-netlify="true" netlify-honeypot="bot-field">
         <p style="display:none"><label>Don't fill this out: <input name="bot-field"></label></p>
         <input type="hidden" name="subject" id="form-subject" value="New Quote Request">
-        <input type="hidden" name="utm_source"   id="utm_source">
-        <input type="hidden" name="utm_medium"   id="utm_medium">
-        <input type="hidden" name="utm_campaign" id="utm_campaign">
-        <input type="hidden" name="utm_term"     id="utm_term">
-        <input type="hidden" name="utm_content"  id="utm_content">
-        <input type="hidden" name="gclid"        id="gclid">
-        <input type="hidden" name="landing_page" id="landing_page">
-        <input type="hidden" name="referrer"     id="referrer">
         <h3>Request a Free Quote</h3>
         <p>Fill out the form below and we'll get back to you quickly.</p>
         <div class="form-row">
@@ -610,6 +602,15 @@
           </select>
         </div>
         <div class="form-group"><label for="message">Tell Us About Your Needs</label><textarea id="message" name="message" placeholder="Dimensions, quantities, custom printing requirements, timeline..."></textarea></div>
+        <!-- Attribution fields placed after the message so Netlify Forms emails surface lead details first. -->
+        <input type="hidden" name="utm_source"   id="utm_source">
+        <input type="hidden" name="utm_medium"   id="utm_medium">
+        <input type="hidden" name="utm_campaign" id="utm_campaign">
+        <input type="hidden" name="utm_term"     id="utm_term">
+        <input type="hidden" name="utm_content"  id="utm_content">
+        <input type="hidden" name="gclid"        id="gclid">
+        <input type="hidden" name="landing_page" id="landing_page">
+        <input type="hidden" name="referrer"     id="referrer">
         <button type="submit" class="form-submit">Send Quote Request →</button>
       </form>
     </div>
