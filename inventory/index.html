@@ -753,16 +753,7 @@ function TransactionsHistory({ items, transactions, session, onChange }) {
 
   async function deleteTx(id) {
     if (!confirm('Delete this transaction? This cannot be undone.')) return;
-    const original = transactions.find(t => t.id === id);
-    if (original) {
-      await sb.from('transaction_audits').insert({
-        transaction_id: id,
-        action: 'delete',
-        before_data: original,
-        after_data: null,
-        changed_by: session?.user?.email || null,
-      });
-    }
+    // Audit is written by the AFTER DELETE trigger on transactions.
     const { error } = await sb.from('transactions').delete().eq('id', id);
     if (error) { alert(error.message); return; }
     onChange();
@@ -773,22 +764,13 @@ function TransactionsHistory({ items, transactions, session, onChange }) {
     if (!e) return;
     const n = parseInt(e.quantity);
     if (isNaN(n) || n === 0) { alert('Quantity must be a non-zero integer'); return; }
-    const original = transactions.find(t => t.id === e.id);
     const updated = {
       date: e.date,
       po_number: (e.po_number || '').trim() || null,
       item_id: e.item_id,
       quantity: n,
     };
-    if (original) {
-      await sb.from('transaction_audits').insert({
-        transaction_id: e.id,
-        action: 'edit',
-        before_data: original,
-        after_data: { ...original, ...updated },
-        changed_by: session?.user?.email || null,
-      });
-    }
+    // Audit is written by the AFTER UPDATE trigger on transactions.
     const { error } = await sb.from('transactions').update(updated).eq('id', e.id);
     if (error) { alert(error.message); return; }
     setEditing(null);
@@ -1529,12 +1511,10 @@ function ImportPage({ transactions, items, onComplete }) {
     setSummary(null);
     setProgress(null);
     try {
-      setStatus('Deleting transaction audits…');
-      let r = await sb.from('transaction_audits').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      if (r.error) throw new Error('Delete audits failed: ' + r.error.message);
-
+      // Audit history is preserved across wipes; the AFTER DELETE trigger on
+      // transactions will write 'delete' audit rows for each row removed below.
       setStatus('Deleting transactions…');
-      r = await sb.from('transactions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      let r = await sb.from('transactions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
       if (r.error) throw new Error('Delete transactions failed: ' + r.error.message);
 
       setStatus('Deleting items…');
@@ -1620,7 +1600,7 @@ function ImportPage({ transactions, items, onComplete }) {
       <Section title="Go-Live: Wipe All Data & Reimport">
         <div className="p-5 space-y-3">
           <div className="bg-red-50 border border-red-300 rounded p-3 text-sm text-red-800">
-            <b>Destructive.</b> Deletes every row from <code>transaction_audits</code>, <code>transactions</code>, and <code>items</code>, then runs the import from the loaded CSVs. Use this only for go-live (or to reset to a clean state).
+            <b>Destructive.</b> Deletes every row from <code>transactions</code> and <code>items</code>, then runs the import from the loaded CSVs. Audit history in <code>transaction_audits</code> is preserved. Use this only for go-live (or to reset to a clean state).
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -1979,6 +1959,7 @@ function AuditLog({ items }) {
 
   function describeDiff(r) {
     if (r.action === 'delete') return <span className="text-red-600 text-xs">Deleted</span>;
+    if (r.action === 'insert') return <span className="text-slate-600 text-xs">Created</span>;
     const b = r.before_data || {};
     const a = r.after_data || {};
     const changes = [];
@@ -2028,7 +2009,8 @@ function AuditLog({ items }) {
           <tbody>
             {loading && <tr><td colSpan="8" className="text-center py-6 text-slate-500">Loading…</td></tr>}
             {!loading && filtered.map(r => {
-              const b = r.before_data || {};
+              // For inserts, before_data is null — fall back to after_data so the row still renders.
+              const b = r.before_data || r.after_data || {};
               const it = itemMap[b.item_id];
               return (
                 <tr key={r.id} className="border-t">
