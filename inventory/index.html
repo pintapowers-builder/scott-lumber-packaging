@@ -619,34 +619,41 @@ function Dashboard({ items, transactions }) {
 function TransactionPage({ items, session, onSaved }) {
   const [date, setDate] = useState(iso(new Date()));
   const [po, setPo] = useState('');
-  const [itemId, setItemId] = useState('');
-  const [qty, setQty] = useState('');
-  const [sign, setSign] = useState('+');
+  const [lines, setLines] = useState([{ itemId: '', qty: '', sign: '+' }]);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
 
   const activeItems = items.filter(i => i.active).sort((a, b) => a.name.localeCompare(b.name));
 
+  const updateLine = (idx, patch) => setLines(prev => prev.map((l, i) => i === idx ? { ...l, ...patch } : l));
+  const addLine = () => setLines(prev => [...prev, { itemId: '', qty: '', sign: '+' }]);
+  const removeLine = (idx) => setLines(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev);
+
   async function submit(e) {
     e.preventDefault();
     setMsg(null);
-    if (!itemId) { setMsg({ err: 'Select an item' }); return; }
-    const n = parseInt(qty);
-    if (isNaN(n) || n <= 0) { setMsg({ err: 'Quantity must be a positive whole number' }); return; }
     if (!date) { setMsg({ err: 'Date required' }); return; }
-    const q = sign === '-' ? -n : n;
+    if (lines.length === 0) { setMsg({ err: 'Add at least one line' }); return; }
+    const rows = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.itemId) { setMsg({ err: `Line ${i + 1}: select an item` }); return; }
+      const n = parseInt(line.qty);
+      if (isNaN(n) || n <= 0) { setMsg({ err: `Line ${i + 1}: quantity must be a positive whole number` }); return; }
+      rows.push({
+        date,
+        po_number: po.trim() || null,
+        item_id: line.itemId,
+        quantity: line.sign === '-' ? -n : n,
+        user_email: session?.user?.email || null,
+      });
+    }
     setSaving(true);
-    const { error } = await sb.from('transactions').insert({
-      date,
-      po_number: po.trim() || null,
-      item_id: itemId,
-      quantity: q,
-      user_email: session?.user?.email || null,
-    });
+    const { error } = await sb.from('transactions').insert(rows);
     setSaving(false);
     if (error) { setMsg({ err: error.message }); return; }
-    setMsg({ ok: `Saved: ${q > 0 ? '+' : ''}${q}` });
-    setQty(''); setPo('');
+    setMsg({ ok: `Saved ${rows.length} line${rows.length === 1 ? '' : 's'}` });
+    setLines([{ itemId: '', qty: '', sign: '+' }]); setPo('');
     onSaved();
   }
 
@@ -660,28 +667,42 @@ function TransactionPage({ items, session, onSaved }) {
         <Field label="PO #">
           <input type="text" value={po} onChange={e => setPo(e.target.value)} placeholder="Optional" className="w-full border rounded px-3 py-2" />
         </Field>
-        <Field label="Item">
-          <select required value={itemId} onChange={e => setItemId(e.target.value)} className="w-full border rounded px-3 py-2 bg-white">
-            <option value="">Select item…</option>
-            {activeItems.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
-          </select>
-        </Field>
-        <Field label="Quantity">
-          <div className="flex gap-2">
-            <div className="flex rounded border overflow-hidden">
-              <button type="button" onClick={() => setSign('+')}
-                className={`px-4 py-2 text-sm font-medium ${sign === '+' ? 'bg-green-600 text-white' : 'bg-white text-slate-700'}`}>
-                + Receipt
-              </button>
-              <button type="button" onClick={() => setSign('-')}
-                className={`px-4 py-2 text-sm font-medium ${sign === '-' ? 'bg-red-600 text-white' : 'bg-white text-slate-700'}`}>
-                − Usage
-              </button>
+        {lines.map((line, idx) => (
+          <div key={idx} className="border rounded p-4 space-y-4 bg-slate-50">
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] uppercase tracking-[.08em] font-medium text-fog-mute">Line {idx + 1}</div>
+              {lines.length > 1 && (
+                <button type="button" onClick={() => removeLine(idx)}
+                  className="text-red-600 text-sm font-medium hover:underline">Remove</button>
+              )}
             </div>
-            <input type="number" min="1" step="1" required value={qty} onChange={e => setQty(e.target.value)}
-              className="flex-1 border rounded px-3 py-2" placeholder="e.g. 25" />
+            <Field label="Item">
+              <select required value={line.itemId} onChange={e => updateLine(idx, { itemId: e.target.value })} className="w-full border rounded px-3 py-2 bg-white">
+                <option value="">Select item…</option>
+                {activeItems.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Quantity">
+              <div className="flex gap-2">
+                <div className="flex rounded border overflow-hidden">
+                  <button type="button" onClick={() => updateLine(idx, { sign: '+' })}
+                    className={`px-4 py-2 text-sm font-medium ${line.sign === '+' ? 'bg-green-600 text-white' : 'bg-white text-slate-700'}`}>
+                    + Receipt
+                  </button>
+                  <button type="button" onClick={() => updateLine(idx, { sign: '-' })}
+                    className={`px-4 py-2 text-sm font-medium ${line.sign === '-' ? 'bg-red-600 text-white' : 'bg-white text-slate-700'}`}>
+                    − Usage
+                  </button>
+                </div>
+                <input type="number" min="1" step="1" required value={line.qty} onChange={e => updateLine(idx, { qty: e.target.value })}
+                  className="flex-1 border rounded px-3 py-2" placeholder="e.g. 25" />
+              </div>
+            </Field>
           </div>
-        </Field>
+        ))}
+        <button type="button" onClick={addLine} className="text-sm font-medium brand-text hover:underline">
+          + Add line
+        </button>
         <div className="flex items-center gap-3">
           <button type="submit" disabled={saving} className="brand text-white px-5 py-2 rounded font-medium disabled:opacity-50">
             {saving ? 'Saving…' : 'Save Transaction'}
