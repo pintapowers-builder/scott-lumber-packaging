@@ -427,11 +427,24 @@ function SetupScreen({ onRetry }) {
 function Dashboard({ items, transactions, pendingOrders }) {
   const metrics = useMemo(() => calcMetrics(items, transactions, pendingOrders), [items, transactions, pendingOrders]);
   const active = metrics.filter(m => m.item.active);
-  const atRiskRows = active.filter(m => m.daysLeft !== null && m.daysLeft < (m.item.lead_time_days || 0));
+  // Earliest confirmed (pending) arrival per item — used to clear the At Risk flag when an order lands in time.
+  const earliestEta = {};
+  for (const po of pendingOrders) {
+    if (po.status !== 'pending' || !po.expected_date) continue;
+    if (!earliestEta[po.item_id] || po.expected_date < earliestEta[po.item_id]) earliestEta[po.item_id] = po.expected_date;
+  }
+  // At risk only if it runs out before lead time AND no confirmed order arrives on/before the run-out date.
+  // Simplification: a timely arrival clears the flag regardless of order quantity vs. continued burn (not modeled).
+  const atRiskRows = active.filter(m => {
+    if (m.daysLeft === null || m.daysLeft >= (m.item.lead_time_days || 0)) return false;
+    const eta = earliestEta[m.item.id];
+    const runout = iso(addDays(new Date(), Math.floor(m.daysLeft)));
+    return !(eta && eta <= runout); // inbound order arriving in time clears the flag
+  });
   const thisMonth = iso(new Date()).slice(0, 7);
   const txThisMonth = transactions.filter(t => t.date && t.date.slice(0, 7) === thisMonth).length;
   const kpis = {
-    reorder:   active.filter(m => m.status === 'Reorder').length,
+    reorder:   active.filter(m => m.suggested > 0).length,
     atRisk:    atRiskRows.length,
     overstock: active.filter(m => m.status === 'Overstock').length,
     ok:        active.filter(m => m.status === 'OK').length,
@@ -439,7 +452,7 @@ function Dashboard({ items, transactions, pendingOrders }) {
     txMonth:   txThisMonth,
     total:     active.reduce((s, m) => s + m.usage12m, 0),
   };
-  const reorderRows = active.filter(m => m.status === 'Reorder').sort((a, b) => (a.mos ?? 0) - (b.mos ?? 0));
+  const reorderRows = active.filter(m => m.suggested > 0).sort((a, b) => (a.mos ?? 0) - (b.mos ?? 0));
   const allRows = [...active].sort((a, b) => a.item.name.localeCompare(b.item.name));
 
   const itemMap = useMemo(() => Object.fromEntries(items.map(i => [i.id, i])), [items]);
@@ -463,6 +476,11 @@ function Dashboard({ items, transactions, pendingOrders }) {
       .slice(0, 10);
   }, [transactions, itemMap]);
 
+  const today = iso(new Date());
+  const overdueOrders = pendingOrders
+    .filter(o => o.status === 'pending' && o.expected_date && o.expected_date < today)
+    .sort((a, b) => a.expected_date < b.expected_date ? -1 : 1);
+
   return (
     <div className="space-y-5">
       <div>
@@ -479,6 +497,28 @@ function Dashboard({ items, transactions, pendingOrders }) {
         <KPICard label="Tx This Month" value={fmt(kpis.txMonth)} color="bg-info" />
         <KPICard label="12M Usage" value={fmt(kpis.total)} color="bg-accent" />
       </div>
+
+      {overdueOrders.length > 0 && (
+        <Section title={`Overdue Orders · ${overdueOrders.length}`}>
+          <Table>
+            <thead><tr><Th>Item</Th><Th>Ordered Qty</Th><Th>Order Date</Th><Th>Expected</Th><Th>Days Overdue</Th></tr></thead>
+            <tbody>
+              {overdueOrders.map(o => {
+                const daysOverdue = Math.max(0, Math.floor((new Date(today) - new Date(o.expected_date)) / 86400000));
+                return (
+                  <tr key={o.id} className="border-t border-ink-line">
+                    <Td className="font-semibold">{itemMap[o.item_id]?.name || '—'}</Td>
+                    <Td>{fmt(o.quantity)}</Td>
+                    <Td className="text-fog-mute">{o.order_date || '—'}</Td>
+                    <Td>{o.expected_date}</Td>
+                    <Td className="font-bold text-danger">{daysOverdue}</Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </Table>
+        </Section>
+      )}
 
       <Section title={`Reorder Now · ${reorderRows.length} items`}>
         <Table>
@@ -1980,7 +2020,7 @@ function ReportsPage({ items, transactions, pendingOrders }) {
 
   function reorderReport() {
     const rows = active
-      .filter(m => m.status === 'Reorder')
+      .filter(m => m.suggested > 0)
       .sort((a, b) => (a.mos ?? 0) - (b.mos ?? 0))
       .map(m => ({
         SKU: m.item.sku || '',
@@ -2128,7 +2168,7 @@ function ReportsPage({ items, transactions, pendingOrders }) {
   const cards = [
     {
       title: 'Reorder Report',
-      desc: `Items currently flagged for reorder (${active.filter(m => m.status === 'Reorder').length}). Suggested order quantities rounded up to case pack.`,
+      desc: `Items currently flagged for reorder (${active.filter(m => m.suggested > 0).length}). Suggested order quantities rounded up to case pack.`,
       action: reorderReport,
     },
     {
