@@ -226,15 +226,20 @@ async function fetchAll(table, orderCol = null) {
 // ─────────────────────────────────────────────────────────────
 // Metrics
 // ─────────────────────────────────────────────────────────────
-function calcMetrics(items, transactions, asOfDate = new Date()) {
+function calcMetrics(items, transactions, pendingOrders = [], asOfDate = new Date()) {
   const cutoff = iso(addDays(asOfDate, -365));
   const byItem = {};
-  for (const it of items) byItem[it.id] = { item: it, onHand: 0, usage12m: 0 };
+  for (const it of items) byItem[it.id] = { item: it, onHand: 0, usage12m: 0, onOrder: 0 };
   for (const tx of transactions) {
     const r = byItem[tx.item_id];
     if (!r) continue;
     r.onHand += tx.quantity;
     if (tx.quantity < 0 && tx.date >= cutoff) r.usage12m += -tx.quantity;
+  }
+  for (const po of pendingOrders) {
+    const r = byItem[po.item_id];
+    if (!r || po.status !== 'pending') continue;
+    r.onOrder += po.quantity;
   }
   return Object.values(byItem).map(r => {
     const avgMonthly        = r.usage12m / 12;
@@ -244,7 +249,7 @@ function calcMetrics(items, transactions, asOfDate = new Date()) {
     const effectiveTargetMos = (r.item.target_mos || 0) + leadTimeMos;
     const targetStock       = avgMonthly * effectiveTargetMos;
     const pack              = r.item.case_pack || 1;
-    const shortfall         = Math.max(0, targetStock - r.onHand);
+    const shortfall         = Math.max(0, targetStock - r.onHand - r.onOrder);
     const suggested         = Math.ceil(shortfall / pack) * pack;
     let status;
     if (avgMonthly === 0) status = 'No Usage';
@@ -419,8 +424,8 @@ function SetupScreen({ onRetry }) {
 // ─────────────────────────────────────────────────────────────
 // Dashboard
 // ─────────────────────────────────────────────────────────────
-function Dashboard({ items, transactions }) {
-  const metrics = useMemo(() => calcMetrics(items, transactions), [items, transactions]);
+function Dashboard({ items, transactions, pendingOrders }) {
+  const metrics = useMemo(() => calcMetrics(items, transactions, pendingOrders), [items, transactions, pendingOrders]);
   const active = metrics.filter(m => m.item.active);
   const atRiskRows = active.filter(m => m.daysLeft !== null && m.daysLeft < (m.item.lead_time_days || 0));
   const thisMonth = iso(new Date()).slice(0, 7);
@@ -479,7 +484,7 @@ function Dashboard({ items, transactions }) {
         <Table>
           <thead>
             <tr>
-              <Th>SKU</Th><Th>Item</Th><Th>On Hand</Th><Th>Avg/Mo</Th>
+              <Th>SKU</Th><Th>Item</Th><Th>On Hand</Th><Th>On Order</Th><Th>Avg/Mo</Th>
               <Th>Days Left</Th><Th>MOS</Th><Th>Target MOS</Th><Th>Lead (d)</Th><Th>Suggested Qty</Th>
             </tr>
           </thead>
@@ -489,6 +494,7 @@ function Dashboard({ items, transactions }) {
                 <Td className="text-fog-mute font-mono text-[11px]">{m.item.sku || '—'}</Td>
                 <Td className="font-semibold">{m.item.name}</Td>
                 <Td>{fmt(m.onHand)}</Td>
+                <Td>{fmt(m.onOrder)}</Td>
                 <Td>{fmt(m.avgMonthly, 1)}</Td>
                 <Td>{m.daysLeft === null ? '—' : fmt(Math.round(m.daysLeft))}</Td>
                 <Td><span className={`px-2 py-0.5 text-[11px] font-bold rounded ${mosColor(m.mos, m.effectiveTargetMos)}`}>{fmt(m.mos, 1)}</span></Td>
@@ -498,7 +504,7 @@ function Dashboard({ items, transactions }) {
               </tr>
             ))}
             {reorderRows.length === 0 && (
-              <tr><td colSpan="9" className="text-center py-6 text-fog-mute">Nothing to reorder</td></tr>
+              <tr><td colSpan="10" className="text-center py-6 text-fog-mute">Nothing to reorder</td></tr>
             )}
           </tbody>
         </Table>
@@ -589,7 +595,7 @@ function Dashboard({ items, transactions }) {
         <Table>
           <thead>
             <tr>
-              <Th>SKU</Th><Th>Item</Th><Th>On Hand</Th><Th>12M Usage</Th><Th>Avg/Mo</Th>
+              <Th>SKU</Th><Th>Item</Th><Th>On Hand</Th><Th>On Order</Th><Th>12M Usage</Th><Th>Avg/Mo</Th>
               <Th>MOS</Th><Th>Target</Th><Th>Status</Th>
             </tr>
           </thead>
@@ -599,6 +605,7 @@ function Dashboard({ items, transactions }) {
                 <Td className="text-fog-mute font-mono text-[11px]">{m.item.sku || '—'}</Td>
                 <Td className="font-semibold">{m.item.name}</Td>
                 <Td>{fmt(m.onHand)}</Td>
+                <Td>{fmt(m.onOrder)}</Td>
                 <Td>{fmt(m.usage12m)}</Td>
                 <Td>{fmt(m.avgMonthly, 1)}</Td>
                 <Td><span className={`px-2 py-0.5 text-[11px] font-bold rounded ${mosColor(m.mos, m.effectiveTargetMos)}`}>{fmt(m.mos, 1)}</span></Td>
@@ -1089,10 +1096,10 @@ function ItemsPage({ items, onChange }) {
 // ─────────────────────────────────────────────────────────────
 // PO Guidance
 // ─────────────────────────────────────────────────────────────
-function POGuidance({ items, transactions }) {
+function POGuidance({ items, transactions, pendingOrders }) {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
-  const metrics = useMemo(() => calcMetrics(items, transactions), [items, transactions]);
+  const metrics = useMemo(() => calcMetrics(items, transactions, pendingOrders), [items, transactions, pendingOrders]);
   const active = metrics.filter(m => m.item.active);
   let rows = active;
   if (filter !== 'all') rows = active.filter(m => m.status === filter);
@@ -1123,6 +1130,7 @@ function POGuidance({ items, transactions }) {
               <Th>SKU</Th>
               <Th>Item</Th>
               <Th>On Hand</Th>
+              <Th>On Order</Th>
               <Th>12M Usage</Th>
               <Th>Avg/Mo</Th>
               <Th>Days Left</Th>
@@ -1141,6 +1149,7 @@ function POGuidance({ items, transactions }) {
                 <Td className="text-slate-500">{m.item.sku || ''}</Td>
                 <Td className="font-medium">{m.item.name}</Td>
                 <Td>{fmt(m.onHand)}</Td>
+                <Td>{fmt(m.onOrder)}</Td>
                 <Td>{fmt(m.usage12m)}</Td>
                 <Td>{fmt(m.avgMonthly, 1)}</Td>
                 <Td>{m.daysLeft === null ? '—' : fmt(Math.round(m.daysLeft))}</Td>
@@ -1154,7 +1163,247 @@ function POGuidance({ items, transactions }) {
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan="13" className="text-center py-6 text-slate-500">No items match.</td></tr>
+              <tr><td colSpan="14" className="text-center py-6 text-slate-500">No items match.</td></tr>
+            )}
+          </tbody>
+        </Table>
+      </Section>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Orders (pending / on order)
+// ─────────────────────────────────────────────────────────────
+function OrdersPage({ items, pendingOrders, session, onChange }) {
+  const [itemId, setItemId]             = useState('');
+  const [qty, setQty]                   = useState('');
+  const [orderDate, setOrderDate]       = useState(iso(new Date()));
+  const [expectedDate, setExpectedDate] = useState('');
+  const [po, setPo]                     = useState('');
+  const [notes, setNotes]               = useState('');
+  const [saving, setSaving]             = useState(false);
+  const [msg, setMsg]                   = useState(null);
+  const [statusFilter, setStatusFilter] = useState('pending');
+  const [receiving, setReceiving]       = useState(null);  // { id, qty, date } for the order being received
+  const [orphan, setOrphan]             = useState(null);  // receipt saved but status flip failed: { id, txId, qty, date }
+  const [rowMsg, setRowMsg]             = useState(null);  // { id, err } per-row message
+  const [busyId, setBusyId]             = useState(null);  // order id with a receive in flight; suppresses re-receive until refresh
+
+  const activeItems = useMemo(() => items.filter(i => i.active).sort((a, b) => a.name.localeCompare(b.name)), [items]);
+  const itemMap     = useMemo(() => Object.fromEntries(items.map(i => [i.id, i])), [items]);
+
+  const shown = useMemo(() => {
+    const rows = statusFilter === 'all' ? pendingOrders : pendingOrders.filter(o => o.status === statusFilter);
+    return [...rows].sort((a, b) => (a.order_date < b.order_date ? 1 : a.order_date > b.order_date ? -1 : 0));
+  }, [pendingOrders, statusFilter]);
+
+  async function createOrder(e) {
+    e.preventDefault();
+    setMsg(null);
+    if (!itemId) { setMsg({ err: 'Select an item' }); return; }
+    const n = parseInt(qty);
+    if (isNaN(n) || n <= 0) { setMsg({ err: 'Quantity must be a positive whole number' }); return; }
+    if (!orderDate) { setMsg({ err: 'Order date required' }); return; }
+    setSaving(true);
+    const { error } = await sb.from('pending_orders').insert({
+      item_id: itemId,
+      quantity: n,
+      order_date: orderDate,
+      expected_date: expectedDate || null,
+      po_number: po.trim() || null,
+      notes: notes.trim() || null,
+      status: 'pending',
+      created_by: session?.user?.email || null,
+    });
+    setSaving(false);
+    if (error) { setMsg({ err: error.message }); return; }
+    setMsg({ ok: `Order placed: ${n}` });
+    setItemId(''); setQty(''); setExpectedDate(''); setPo(''); setNotes('');
+    onChange();
+  }
+
+  function startReceive(order) {
+    setRowMsg(null); setOrphan(null);
+    setReceiving({ id: order.id, qty: String(order.quantity), date: iso(new Date()) });
+  }
+
+  async function confirmReceive(order) {
+    if (busyId === order.id) return;
+    setRowMsg(null);
+    const n = parseInt(receiving.qty);
+    if (isNaN(n) || n <= 0) { setRowMsg({ id: order.id, err: 'Received qty must be a positive whole number' }); return; }
+    if (!receiving.date) { setRowMsg({ id: order.id, err: 'Received date required' }); return; }
+    setBusyId(order.id);
+    // Step 1: record the receipt as a positive transaction FIRST, so inventory stays correct
+    // even if the status flip below fails. Capture the new transaction id.
+    const { data: tx, error: txErr } = await sb.from('transactions').insert({
+      date: receiving.date,
+      po_number: order.po_number,
+      item_id: order.item_id,
+      quantity: n,
+      user_email: session?.user?.email || null,
+    }).select('id').single();
+    if (txErr) { setBusyId(null); setRowMsg({ id: order.id, err: txErr.message }); return; }
+    // Step 2: flip the order to received. These are two separate calls, not one atomic
+    // transaction — acceptable here. TODO: harden as a single Supabase RPC so the receipt
+    // and the status flip can never diverge.
+    await flipReceived(order, tx.id, n, receiving.date);
+  }
+
+  async function flipReceived(order, txId, n, date) {
+    const { error } = await sb.from('pending_orders').update({
+      status: 'received',
+      received_quantity: n,
+      received_date: date,
+      transaction_id: txId,
+      updated_at: new Date().toISOString(),
+    }).eq('id', order.id);
+    if (error) {
+      // The receipt is already saved; remember it so the user can retry ONLY the status flip.
+      // Re-receiving would insert a second transaction and double-count inventory.
+      setBusyId(null);
+      setOrphan({ id: order.id, txId, qty: n, date });
+      setReceiving(null);
+      setRowMsg({ id: order.id, err: `Received qty ${n} WAS recorded, but the order status did not update (${error.message}). Use “Retry status update”.` });
+      onChange();
+      return;
+    }
+    setOrphan(null); setReceiving(null); setRowMsg(null);
+    onChange();
+  }
+
+  async function cancelOrder(order) {
+    if (!confirm('Cancel this order? No transaction will be created.')) return;
+    setRowMsg(null);
+    const { error } = await sb.from('pending_orders').update({
+      status: 'cancelled',
+      updated_at: new Date().toISOString(),
+    }).eq('id', order.id);
+    if (error) { setRowMsg({ id: order.id, err: error.message }); return; }
+    onChange();
+  }
+
+  const statusPill = (s) =>
+    s === 'pending'  ? <Pill tone="info">On Order</Pill> :
+    s === 'received' ? <Pill tone="ok">Received</Pill> :
+                       <Pill tone="mute">Cancelled</Pill>;
+
+  return (
+    <div className="max-w-5xl space-y-6">
+      <h2 className="text-2xl font-bold brand-text">Orders</h2>
+
+      <form onSubmit={createOrder} className="bg-white rounded-lg shadow p-6 grid sm:grid-cols-2 gap-4">
+        <Field label="Item">
+          <select required value={itemId} onChange={e => setItemId(e.target.value)} className="w-full border rounded px-3 py-2 bg-white">
+            <option value="">Select item…</option>
+            {activeItems.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Quantity">
+          <input type="number" min="1" step="1" required value={qty} onChange={e => setQty(e.target.value)}
+            className="w-full border rounded px-3 py-2" placeholder="e.g. 200" />
+        </Field>
+        <Field label="Order Date">
+          <input type="date" required value={orderDate} onChange={e => setOrderDate(e.target.value)} className="w-full border rounded px-3 py-2" />
+        </Field>
+        <Field label="Expected Date">
+          <input type="date" value={expectedDate} onChange={e => setExpectedDate(e.target.value)} className="w-full border rounded px-3 py-2" />
+        </Field>
+        <Field label="PO #">
+          <input type="text" value={po} onChange={e => setPo(e.target.value)} placeholder="Optional" className="w-full border rounded px-3 py-2" />
+        </Field>
+        <Field label="Notes">
+          <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional" className="w-full border rounded px-3 py-2" />
+        </Field>
+        <div className="sm:col-span-2 flex items-center gap-3">
+          <button type="submit" disabled={saving} className="brand text-white px-5 py-2 rounded font-medium disabled:opacity-50">
+            {saving ? 'Saving…' : 'Place Order'}
+          </button>
+          {msg?.ok  && <span className="text-green-700 text-sm">✓ {msg.ok}</span>}
+          {msg?.err && <span className="text-red-600 text-sm">{msg.err}</span>}
+        </div>
+      </form>
+
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        {[['pending', 'On Order'], ['received', 'Received'], ['cancelled', 'Cancelled'], ['all', 'All']].map(([k, lbl]) => (
+          <button key={k} onClick={() => setStatusFilter(k)}
+            className={`px-3 py-1.5 rounded border ${statusFilter === k ? 'brand text-white border-transparent' : 'bg-white hover:bg-slate-100'}`}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      <Section title={`${shown.length} order${shown.length === 1 ? '' : 's'}`}>
+        <Table>
+          <thead className="bg-slate-50">
+            <tr>
+              <Th>Item</Th>
+              <Th>Qty</Th>
+              <Th>Order Date</Th>
+              <Th>Expected</Th>
+              <Th>PO #</Th>
+              <Th>Notes</Th>
+              <Th>Status</Th>
+              <Th>Received</Th>
+              <Th></Th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map(o => (
+              <React.Fragment key={o.id}>
+                <tr className="border-t border-ink-line">
+                  <Td className="font-medium">{itemMap[o.item_id]?.name || <span className="text-danger">(deleted)</span>}</Td>
+                  <Td>{fmt(o.quantity)}</Td>
+                  <Td className="text-fog-mute">{o.order_date}</Td>
+                  <Td className="text-fog-mute">{o.expected_date || '—'}</Td>
+                  <Td>{o.po_number || '—'}</Td>
+                  <Td className="text-fog-mute">{o.notes || '—'}</Td>
+                  <Td>{statusPill(o.status)}</Td>
+                  <Td className="text-fog-mute">{o.status === 'received' ? `${fmt(o.received_quantity)} on ${o.received_date}` : '—'}</Td>
+                  <Td className="text-right whitespace-nowrap">
+                    {o.status === 'pending' && orphan?.id !== o.id && receiving?.id !== o.id && busyId !== o.id && (
+                      <>
+                        <button onClick={() => startReceive(o)} className="text-ok hover:underline font-medium mr-3">Receive</button>
+                        <button onClick={() => cancelOrder(o)} className="text-danger hover:underline font-medium">Cancel</button>
+                      </>
+                    )}
+                    {orphan?.id === o.id && (
+                      <button onClick={() => flipReceived(o, orphan.txId, orphan.qty, orphan.date)} className="text-orange hover:underline font-medium">Retry status update</button>
+                    )}
+                  </Td>
+                </tr>
+                {receiving?.id === o.id && (
+                  <tr className="border-t border-ink-line bg-okdim">
+                    <td colSpan="9" className="px-3.5 py-3">
+                      <div className="flex flex-wrap items-end gap-3">
+                        <label className="block">
+                          <div className="text-[11px] uppercase tracking-[.08em] font-medium text-fog-mute mb-1.5">Received Qty</div>
+                          <input type="number" min="1" step="1" value={receiving.qty}
+                            onChange={e => setReceiving(r => ({ ...r, qty: e.target.value }))}
+                            className="border rounded px-3 py-2 w-32" />
+                        </label>
+                        <label className="block">
+                          <div className="text-[11px] uppercase tracking-[.08em] font-medium text-fog-mute mb-1.5">Received Date</div>
+                          <input type="date" value={receiving.date}
+                            onChange={e => setReceiving(r => ({ ...r, date: e.target.value }))}
+                            className="border rounded px-3 py-2" />
+                        </label>
+                        <button onClick={() => confirmReceive(o)} disabled={busyId === o.id} className="brand text-white px-4 py-2 rounded font-medium disabled:opacity-50">{busyId === o.id ? 'Saving…' : 'Confirm Receipt'}</button>
+                        <button onClick={() => { setReceiving(null); setRowMsg(null); }} className="text-fog-mute hover:text-fog px-3 py-2">Cancel</button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {rowMsg?.id === o.id && (
+                  <tr className="bg-dangerdim">
+                    <td colSpan="9" className="px-3.5 py-2 text-danger text-[12px]">{rowMsg.err}</td>
+                  </tr>
+                )}
+              </React.Fragment>
+            ))}
+            {shown.length === 0 && (
+              <tr><td colSpan="9" className="text-center py-6 text-fog-mute">No orders.</td></tr>
             )}
           </tbody>
         </Table>
@@ -1647,8 +1896,8 @@ function ImportPage({ transactions, items, onComplete }) {
 // ─────────────────────────────────────────────────────────────
 // Export
 // ─────────────────────────────────────────────────────────────
-function ExportPage({ items, transactions }) {
-  const metrics = useMemo(() => calcMetrics(items, transactions), [items, transactions]);
+function ExportPage({ items, transactions, pendingOrders }) {
+  const metrics = useMemo(() => calcMetrics(items, transactions, pendingOrders), [items, transactions, pendingOrders]);
   function download() {
     const XLSX = window.XLSX;
     const wb = XLSX.utils.book_new();
@@ -1713,11 +1962,11 @@ function ExportPage({ items, transactions }) {
 // ─────────────────────────────────────────────────────────────
 // Reports
 // ─────────────────────────────────────────────────────────────
-function ReportsPage({ items, transactions }) {
+function ReportsPage({ items, transactions, pendingOrders }) {
   const [txStart, setTxStart] = useState('');
   const [txEnd, setTxEnd] = useState(iso(new Date()));
 
-  const metrics = useMemo(() => calcMetrics(items, transactions), [items, transactions]);
+  const metrics = useMemo(() => calcMetrics(items, transactions, pendingOrders), [items, transactions, pendingOrders]);
   const active = metrics.filter(m => m.item.active);
 
   function writeWb(sheets, name) {
@@ -2165,6 +2414,7 @@ function MainApp({ session, signOut }) {
   const [page, setPage]                 = useState('dashboard');
   const [items, setItems]               = useState([]);
   const [transactions, setTransactions] = useState([]);
+  const [pendingOrders, setPendingOrders] = useState([]);
   const [loading, setLoading]           = useState(true);
   const [err, setErr]                   = useState('');
   const [theme, setTheme]               = useState(() => {
@@ -2180,9 +2430,10 @@ function MainApp({ session, signOut }) {
   const refresh = useCallback(async () => {
     setErr('');
     try {
-      const [i, t] = await Promise.all([fetchAll('items', 'name'), fetchAll('transactions', 'date')]);
+      const [i, t, p] = await Promise.all([fetchAll('items', 'name'), fetchAll('transactions', 'date'), fetchAll('pending_orders', 'order_date')]);
       setItems(i);
       setTransactions(t);
+      setPendingOrders(p);
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -2198,6 +2449,7 @@ function MainApp({ session, signOut }) {
     ['history',     'Transactions'],
     ['items',       'Items'],
     ['po',          'PO Guidance'],
+    ['orders',      'Orders'],
     ['burn',        'Burn Rate'],
     ['reports',     'Reports'],
     ['leads',       'Quote Requests'],
@@ -2240,17 +2492,18 @@ function MainApp({ session, signOut }) {
           <div className="text-fog-mute">Loading…</div>
         ) : (
           <>
-            {page === 'dashboard'   && <Dashboard          items={items} transactions={transactions} />}
+            {page === 'dashboard'   && <Dashboard          items={items} transactions={transactions} pendingOrders={pendingOrders} />}
             {page === 'transaction' && <TransactionPage    items={items} session={session} onSaved={refresh} />}
             {page === 'history'     && <TransactionsHistory items={items} transactions={transactions} session={session} onChange={refresh} />}
             {page === 'items'       && <ItemsPage          items={items} onChange={refresh} />}
-            {page === 'po'          && <POGuidance         items={items} transactions={transactions} />}
+            {page === 'po'          && <POGuidance         items={items} transactions={transactions} pendingOrders={pendingOrders} />}
+            {page === 'orders'      && <OrdersPage         items={items} pendingOrders={pendingOrders} session={session} onChange={refresh} />}
             {page === 'burn'        && <BurnRate           items={items} transactions={transactions} />}
-            {page === 'reports'     && <ReportsPage        items={items} transactions={transactions} />}
+            {page === 'reports'     && <ReportsPage        items={items} transactions={transactions} pendingOrders={pendingOrders} />}
             {page === 'leads'       && <QuoteRequests />}
             {page === 'audit'       && <AuditLog           items={items} />}
             {page === 'import'      && <ImportPage         items={items} transactions={transactions} onComplete={refresh} />}
-            {page === 'export'      && <ExportPage         items={items} transactions={transactions} />}
+            {page === 'export'      && <ExportPage         items={items} transactions={transactions} pendingOrders={pendingOrders} />}
           </>
         )}
       </main>
